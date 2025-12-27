@@ -119,11 +119,11 @@ export default function InviteLink() {
             <div style={{background: '#f8fafc', padding: '15px 20px', borderRadius: 10, margin: '20px 0', textAlign:'left', border: '1px solid #e2e8f0'}}>
               
               {/* Descrição / Regras */}
-              {league?.description ? (
+              {league?.rules ? (
                  <div style={{marginBottom: 15}}>
                    <span style={{fontSize:'0.75rem', fontWeight:'bold', color:'#94a3b8', textTransform:'uppercase'}}>Regras / Descrição</span>
                    <p style={{color: '#475569', fontSize: '0.95rem', margin: '5px 0', whiteSpace: 'pre-line', lineHeight: '1.5'}}>
-                     {league.description}
+                     {league.rules}
                    </p>
                  </div>
               ) : (
@@ -136,7 +136,7 @@ export default function InviteLink() {
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                 <span style={{fontWeight:'bold', color: '#475569'}}>Valor da Entrada:</span>
                 <span style={{fontSize:'1.2rem', fontWeight:'bold', color: '#16a34a'}}>
-                  {league?.fee ? `R$ ${league.fee}` : 'Grátis'}
+                  {league?.entryFee ? `R$ ${league.entryFee}` : 'Grátis'}
                 </span>
               </div>
             </div>
