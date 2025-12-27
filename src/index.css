@@ -35,7 +35,8 @@ a.login-btn, a.btn-secondary {
 .container {
   max-width: 1000px;
   margin: 0 auto;
-  padding: 2rem 1rem;
+  min-height: 100dvh;
+  padding: 2rem 1rem 8rem 1rem;
 }
 
 /* --- Navbar --- */
