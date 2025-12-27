@@ -6,17 +6,29 @@ import { useAuthState } from 'react-firebase-hooks/auth';
 
 export default function InviteLink() {
   const { leagueId } = useParams();
-  const [user] = useAuthState(auth);
+  const [user, authLoading] = useAuthState(auth); // authLoading é importante para não redirecionar antes da hora
   const navigate = useNavigate();
   
   const [league, setLeague] = useState(null);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState(null);
-  const [errorMsg, setErrorMsg] = useState(''); // Para substituir o alert de erro
+  const [errorMsg, setErrorMsg] = useState('');
+  const [joining, setJoining] = useState(false); // Estado para travar o botão durante o clique
 
+  // --- MUDANÇA 1: Se não estiver logado, salva intenção e manda pro Login ---
+  useEffect(() => {
+    if (!authLoading && !user) {
+      console.log("Usuário não logado. Salvando convite e redirecionando...");
+      localStorage.setItem('pendingInvite', leagueId);
+      navigate('/login');
+    }
+  }, [user, authLoading, leagueId, navigate]);
+
+  // Carrega dados do Bolão
   useEffect(() => {
     const checkLeague = async () => {
-      if (!user) return;
+      // Se ainda tá carregando auth ou não tem user, espera (o useEffect acima trata o redirect)
+      if (authLoading || !user) return;
 
       try {
         const leagueDoc = await getDoc(doc(db, 'leagues', leagueId));
@@ -29,13 +41,14 @@ export default function InviteLink() {
 
         setLeague(leagueDoc.data());
 
+        // Verifica se já sou membro
         const memberDoc = await getDoc(doc(db, 'leagues', leagueId, 'members', user.uid));
         
         if (memberDoc.exists()) {
           const s = memberDoc.data().status;
           setStatus(s);
           
-          // --- MUDANÇA 1: REDIRECIONAMENTO AUTOMÁTICO ---
+          // Se já for ativo, joga direto pro dashboard
           if (s === 'active') {
             navigate(`/bolao/${leagueId}`, { replace: true });
           }
@@ -52,9 +65,10 @@ export default function InviteLink() {
     };
 
     checkLeague();
-  }, [leagueId, user, navigate]);
+  }, [leagueId, user, authLoading, navigate]);
 
   const handleJoinRequest = async () => {
+    setJoining(true);
     try {
       await setDoc(doc(db, 'leagues', leagueId, 'members', user.uid), {
         uid: user.uid,
@@ -65,15 +79,19 @@ export default function InviteLink() {
         joinedAt: new Date()
       });
       setStatus('pending');
-      // Não precisa de alert, a UI muda sozinha para "Aguardando aprovação"
     } catch (error) {
       setErrorMsg("Erro ao enviar solicitação.");
+    } finally {
+      setJoining(false);
     }
   };
 
-  if (loading) return <div className="container" style={{textAlign:'center', marginTop: 50}}>Carregando convite...</div>;
+  // Carregamento inicial (Auth ou Dados)
+  if (authLoading || (loading && !errorMsg)) {
+    return <div className="container" style={{textAlign:'center', marginTop: 50}}>Carregando convite...</div>;
+  }
 
-  // Se tiver erro (link inválido), mostra na tela bonitinho
+  // Tela de Erro
   if (errorMsg) {
     return (
       <div className="container" style={{textAlign:'center', marginTop: 50}}>
@@ -84,19 +102,46 @@ export default function InviteLink() {
     );
   }
 
-  // Se o redirecionamento automático não acontecer (ex: delay), mostra isso,
-  // mas idealmente o usuário 'active' nem vê essa tela.
   return (
     <div className="container" style={{display:'flex', justifyContent:'center', alignItems:'center', minHeight:'60vh'}}>
-      <div className="card-jogo" style={{textAlign:'center', maxWidth:'400px', padding:'0'}}>
+      {/* --- MUDANÇA 5: Layout Enriquecido --- */}
+      <div className="card-jogo" style={{textAlign:'center', maxWidth:'500px', width: '100%', padding:'0'}}>
         <div className="card-content">
-            <div style={{fontSize:'3rem', marginBottom:'1rem'}}>📩</div>
-            <h2 style={{color: 'var(--primary)', marginBottom: '1rem'}}>Convite para Bolão</h2>
+            <div style={{fontSize:'3rem', marginBottom:'0.5rem'}}>📩</div>
+            <h2 style={{color: 'var(--primary)', marginBottom: '1.5rem'}}>Convite para Bolão</h2>
             
-            <div style={{margin: '20px 0'}}>
-                <p style={{color:'#666'}}>Você foi convidado para:</p>
-                <h1 style={{fontSize:'1.8rem', margin:'10px 0', color: 'var(--primary)'}}>{league.name}</h1>
+            <div style={{margin: '0 0 20px 0'}}>
+                <p style={{color:'#666', fontSize:'0.9rem'}}>Você foi convidado para participar de:</p>
+                <h1 style={{fontSize:'1.8rem', margin:'10px 0', color: 'var(--primary)'}}>{league?.name}</h1>
             </div>
+
+            {/* --- BLOCO DE INFORMAÇÕES (Regras e Cota) --- */}
+            <div style={{background: '#f8fafc', padding: '15px 20px', borderRadius: 10, margin: '20px 0', textAlign:'left', border: '1px solid #e2e8f0'}}>
+              
+              {/* Descrição / Regras */}
+              {league?.description ? (
+                 <div style={{marginBottom: 15}}>
+                   <span style={{fontSize:'0.75rem', fontWeight:'bold', color:'#94a3b8', textTransform:'uppercase'}}>Regras / Descrição</span>
+                   <p style={{color: '#475569', fontSize: '0.95rem', margin: '5px 0', whiteSpace: 'pre-line', lineHeight: '1.5'}}>
+                     {league.description}
+                   </p>
+                 </div>
+              ) : (
+                <p style={{color: '#94a3b8', fontStyle: 'italic', fontSize: '0.9rem'}}>Sem descrição definida.</p>
+              )}
+
+              <hr style={{border: '0', borderTop: '1px solid #e2e8f0', margin: '15px 0'}}/>
+
+              {/* Valor / Cota */}
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                <span style={{fontWeight:'bold', color: '#475569'}}>Valor da Entrada:</span>
+                <span style={{fontSize:'1.2rem', fontWeight:'bold', color: '#16a34a'}}>
+                  {league?.fee ? `R$ ${league.fee}` : 'Grátis'}
+                </span>
+              </div>
+            </div>
+
+            {/* --- ESTADOS DO BOTÃO --- */}
 
             {status === 'pending' && (
               <div style={{background:'#fef9c3', padding:15, borderRadius:8, border:'1px solid #fde047', color:'#854d0e'}}>
@@ -106,10 +151,17 @@ export default function InviteLink() {
             )}
 
             {status === 'none' && (
-              <button onClick={handleJoinRequest} className="login-btn">
-                  Solicitar Entrada
+              <button onClick={handleJoinRequest} className="login-btn" disabled={joining}>
+                  {joining ? 'Enviando...' : 'Aceitar e Participar'}
               </button>
             )}
+
+            <button 
+              onClick={() => navigate('/')} 
+              style={{background:'transparent', border:'none', color:'#94a3b8', marginTop:15, cursor:'pointer', fontSize: '0.9rem'}}
+            >
+              Cancelar
+            </button>
         </div>
       </div>
     </div>

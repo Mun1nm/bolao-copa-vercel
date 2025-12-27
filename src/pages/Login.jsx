@@ -11,6 +11,7 @@ export default function Login() {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
       
+      // Salva ou atualiza usuário no banco
       await setDoc(doc(db, 'users', user.uid), {
         displayName: user.displayName,
         email: user.email,
@@ -18,7 +19,23 @@ export default function Login() {
         lastLogin: new Date()
       }, { merge: true });
 
-      navigate('/');
+      // --- A MÁGICA DO REDIRECIONAMENTO AQUI ---
+      
+      // 1. Verifica se tem algum convite salvo na memória
+      const pendingLeagueId = localStorage.getItem('pendingInvite');
+
+      if (pendingLeagueId) {
+        // 2. Se tiver, limpa a memória (pra não ficar preso nisso pra sempre)
+        localStorage.removeItem('pendingInvite');
+        
+        // 3. Redireciona de volta para a tela de convite
+        navigate(`/convite/${pendingLeagueId}`);
+      } else {
+        // 4. Se não tiver nada pendente, vida normal: vai pra Home
+        navigate('/');
+      }
+      // -------------------------------------------
+
     } catch (error) {
       console.error("Erro login", error);
     }
