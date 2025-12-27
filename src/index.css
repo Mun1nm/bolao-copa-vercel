@@ -145,8 +145,10 @@ a.login-btn, a.btn-secondary {
 /* --- Dashboard (Grid de Jogos) --- */
 .matches-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); 
   gap: 1.5rem;
+  
+  justify-content: center; 
 }
 
 .card-jogo {
@@ -1161,4 +1163,17 @@ input[type=number] {
     width: 40%;
     margin: 8px auto; /* 8px em cima, 8px embaixo = Equilíbrio */
   }
+}
+
+/* Padrão: Esconde Mobile, Mostra Desktop */
+.mobile-only { display: none; }
+.desktop-only { display: block; }
+
+/* Mobile (telas menores que 600px) */
+@media (max-width: 600px) {
+  .mobile-only { display: block; font-weight: 800; } /* Mais negrito pra sigla */
+  .desktop-only { display: none; }
+  
+  /* Ajuste para a sigla não quebrar */
+  .team-name { min-width: auto; } 
 }

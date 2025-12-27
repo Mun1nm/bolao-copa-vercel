@@ -146,8 +146,11 @@ export default function Results() {
 
                   {/* 2. Mandante */}
                   <div className="cell-team home">
-                    <span className="team-name">{home.name}</span>
-                    <img src={home.flagUrl} className="flag-img" alt={home.id} referrerPolicy="no-referrer" />
+                    {/* Renderiza os dois, o CSS decide qual mostrar */}
+                    <span className="team-name desktop-only">{home.name}</span>
+                    <span className="team-name mobile-only">{home.id}</span> 
+                    
+                    <img src={home.flagUrl} className="flag-img" alt={home.id} />
                   </div>
 
                   {/* 3. Placar */}
@@ -159,8 +162,11 @@ export default function Results() {
 
                   {/* 4. Visitante */}
                   <div className="cell-team away">
-                    <img src={away.flagUrl} className="flag-img" alt={away.id} referrerPolicy="no-referrer" />
-                    <span className="team-name">{away.name}</span>
+                    {/* Renderiza os dois, o CSS decide qual mostrar */}
+                    <span className="team-name desktop-only">{away.name}</span>
+                    <span className="team-name mobile-only">{away.id}</span> 
+                    
+                    <img src={away.flagUrl} className="flag-img" alt={away.id} />
                   </div>
                 </div>
               );
