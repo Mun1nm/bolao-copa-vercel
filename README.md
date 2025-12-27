@@ -33,7 +33,7 @@ Antes de começar, você precisará ter instalado:
 
 1.  Clone este repositório:
     ```bash
-    git clone [https://github.com/Mun1nm/bolao-copa-vercel.git](https://github.com/Mun1nm/bolao-copa-vercel.git)
+    git clone https://github.com/Mun1nm/bolao-copa-vercel.git
     ```
 
 2.  Acesse a pasta do projeto:
