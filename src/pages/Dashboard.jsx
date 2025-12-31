@@ -17,6 +17,7 @@ export default function Dashboard() {
   const [uniqueGroups, setUniqueGroups] = useState([]);
   const [pendingGuesses, setPendingGuesses] = useState({}); 
   const [loadingIds, setLoadingIds] = useState([]); 
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -29,14 +30,11 @@ export default function Dashboard() {
       let teamsMap = {};
 
       if (cachedTeams) {
-        // Se já tem no navegador, usa o cache!
         teamsMap = JSON.parse(cachedTeams);
         setTeams(teamsMap);
       } else {
-        // Se não tem, busca no Firebase e salva
         const teamsSnap = await getDocs(collection(db, 'teams'));
         teamsSnap.forEach(t => teamsMap[t.id] = { id: t.id, ...t.data() });
-        
         setTeams(teamsMap);
         localStorage.setItem('worldcup_teams_cache', JSON.stringify(teamsMap));
       }
@@ -50,13 +48,11 @@ export default function Dashboard() {
       setUniqueGroups(groups);
       if (groups.length > 0) setActiveGroup(groups[0]);
 
-      // --- MUDANÇA 1: BUSCAR PALPITES DESTE BOLÃO ESPECÍFICO ---
       if (auth.currentUser) {
-        // Query composta: Palpites deste usuário NESTE bolão
         const q = query(
           collection(db, 'guesses'), 
           where('userId', '==', auth.currentUser.uid),
-          where('leagueId', '==', leagueId) // <--- O FILTRO MÁGICO
+          where('leagueId', '==', leagueId)
         );
         
         const guessesSnap = await getDocs(q);
@@ -75,12 +71,9 @@ export default function Dashboard() {
     const mH = match.homeScore; const mA = match.awayScore;
     const gH = guess.homeGuess; const gA = guess.awayGuess;
     
-    // Pontos agora são lidos do palpite, pois podem variar por bolão se as regras forem diferentes no futuro
-    // Mas por enquanto usamos a lógica padrão para exibir o label
     if (guess.pointsEarned === 3) return { type: 'exact', label: 'Na Mosca!', points: 3 };
     if (guess.pointsEarned === 1) return { type: 'partial', label: 'Acertou Vencedor', points: 1 };
     
-    // Fallback visual caso o admin ainda não tenha processado
     if (mH === gH && mA === gA) return { type: 'exact', label: 'Na Mosca!', points: 3 };
     const matchWinner = mH > mA ? 'home' : (mH < mA ? 'away' : 'draw');
     const guessWinner = gH > gA ? 'home' : (gH < gA ? 'away' : 'draw');
@@ -93,39 +86,54 @@ export default function Dashboard() {
     setPendingGuesses(prev => ({ ...prev, [matchId]: { ...prev[matchId], [field]: value } }));
   };
 
+  // --- LÓGICA INTELIGENTE DE SALVAMENTO ---
   const handleSaveGuess = async (matchId) => {
     const userId = auth.currentUser.uid;
-    
-    // --- MUDANÇA 2: ID DO DOCUMENTO AGORA INCLUI O LEAGUEID ---
-    // Antes: matchId_userId
-    // Agora: leagueId_matchId_userId
     const guessId = `${leagueId}_${matchId}_${userId}`;
     
     const currentPending = pendingGuesses[matchId] || {};
     const currentSaved = myGuesses[matchId] || {};
-    const homeVal = currentPending.homeGuess ?? currentSaved.homeGuess;
-    const awayVal = currentPending.awayGuess ?? currentSaved.awayGuess;
 
-    if (homeVal === undefined || awayVal === undefined || homeVal === '' || awayVal === '') {
-      alert("Preencha tudo!"); return;
+    // Pega o valor bruto (pode ser string vazia, numero ou undefined)
+    let rawHome = currentPending.homeGuess !== undefined ? currentPending.homeGuess : currentSaved.homeGuess;
+    let rawAway = currentPending.awayGuess !== undefined ? currentPending.awayGuess : currentSaved.awayGuess;
+
+    // Normaliza para string para facilitar a checagem
+    const strHome = rawHome === undefined || rawHome === null ? '' : String(rawHome);
+    const strAway = rawAway === undefined || rawAway === null ? '' : String(rawAway);
+
+    // 1. Se ambos estiverem vazios, o usuário não digitou nada. Aborta.
+    if (strHome === '' && strAway === '') {
+      return;
     }
+
+    // 2. A MÁGICA: Se um estiver vazio, assume ZERO.
+    const finalHome = strHome === '' ? 0 : parseInt(strHome);
+    const finalAway = strAway === '' ? 0 : parseInt(strAway);
+
     setLoadingIds(prev => [...prev, matchId]);
     
     try {
       const payload = { 
         matchId, 
         userId, 
-        leagueId, // <--- SALVANDO O VÍNCULO COM O BOLÃO
-        homeGuess: Number(homeVal), 
-        awayGuess: Number(awayVal), 
+        leagueId,
+        homeGuess: finalHome, 
+        awayGuess: finalAway, 
         updatedAt: new Date() 
       };
       
       await setDoc(doc(db, 'guesses', guessId), payload, { merge: true });
       
+      // Atualiza o estado local com os valores finais (ex: preenchendo o zero na tela)
       setMyGuesses(prev => ({ ...prev, [matchId]: { ...prev[matchId], ...payload } }));
+      
+      // Limpa o estado pendente
       setPendingGuesses(prev => { const newState = { ...prev }; delete newState[matchId]; return newState; });
-    
+
+      setToast("Palpite salvo!");
+      setTimeout(() => setToast(null), 2000);
+
     } catch (e) { console.error(e); alert("Erro ao salvar palpite"); } 
     finally { setLoadingIds(prev => prev.filter(id => id !== matchId)); }
   };
@@ -172,8 +180,11 @@ export default function Dashboard() {
 
           const pending = pendingGuesses[match.id] || {};
           const saved = myGuesses[match.id] || {};
+          
+          // O valor do input agora aceita vazio '' sem placeholder
           const homeValue = pending.homeGuess ?? saved.homeGuess ?? '';
           const awayValue = pending.awayGuess ?? saved.awayGuess ?? '';
+          
           const hasChanges = pendingGuesses[match.id] !== undefined;
           const isSaving = loadingIds.includes(match.id);
           const isFinished = match.status === 'finished';
@@ -189,16 +200,47 @@ export default function Dashboard() {
                       <span style={{fontSize: '1.5rem', color: '#333'}}>{saved.homeGuess ?? '-'} x {saved.awayGuess ?? '-'}</span>
                     ) : (
                       <>
-                        <input type="number" className="score-input" value={homeValue} onChange={(e) => handleType(match.id, 'homeGuess', e.target.value)} placeholder="0"/>
+                        {/* INPUT CASA */}
+                        <input 
+                          type="number" 
+                          inputMode="numeric"
+                          className="score-input" 
+                          value={homeValue} 
+                          onChange={(e) => handleType(match.id, 'homeGuess', e.target.value)} 
+                          
+                          // LÓGICA DO PLACEHOLDER DINÂMICO AQUI 👇
+                          // Se o valor do visitante (awayValue) não for vazio, mostra "0" aqui
+                          placeholder={String(awayValue) !== '' ? "0" : ""}
+                        />
+                        
                         <span>×</span>
-                        <input type="number" className="score-input" value={awayValue} onChange={(e) => handleType(match.id, 'awayGuess', e.target.value)} placeholder="0"/>
+                        
+                        {/* INPUT VISITANTE */}
+                        <input 
+                          type="number" 
+                          inputMode="numeric"
+                          className="score-input" 
+                          value={awayValue} 
+                          onChange={(e) => handleType(match.id, 'awayGuess', e.target.value)} 
+                          
+                          // LÓGICA DO PLACEHOLDER DINÂMICO AQUI 👇
+                          // Se o valor da casa (homeValue) não for vazio, mostra "0" aqui
+                          placeholder={String(homeValue) !== '' ? "0" : ""}
+                        />
                       </>
                     )}
                   </div>
                   <div className="team-box"><img src={away.flagUrl} alt={away.name}/><span>{away.id}</span></div>
                 </div>
+                
+                {/* Resto do código igual... */}
                 {!isFinished && <div className="match-info">{new Date(match.date).toLocaleDateString('pt-BR')}</div>}
-                {!isFinished && hasChanges && <button onClick={() => handleSaveGuess(match.id)} className="btn-save-guess" disabled={isSaving}>Confirmar</button>}
+                
+                {!isFinished && hasChanges && (
+                  <button onClick={() => handleSaveGuess(match.id)} className="btn-save-guess" disabled={isSaving}>
+                    {isSaving ? '...' : 'Confirmar'}
+                  </button>
+                )}
               </div>
               {isFinished && (
                 <div className="guess-feedback">
@@ -210,6 +252,11 @@ export default function Dashboard() {
           );
         })}
       </div>
+      {toast && (
+        <div className="toast-notification">
+          ✅ {toast}
+        </div>
+      )}
     </div>
   );
 }
