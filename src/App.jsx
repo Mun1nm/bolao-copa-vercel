@@ -39,7 +39,7 @@ function App() {
         <Route path="/criar-bolao" element={<PrivateRoute><CreateLeague /></PrivateRoute>} />
 
         {/* Convite (Crie o arquivo InviteLink.jsx com o código que passei na msg anterior se quiser testar já) */}
-        <Route path="/convite/:leagueId" element={<PrivateRoute><InviteLink /></PrivateRoute>} />
+        <Route path="/convite/:leagueId" element={<InviteLink />} />
 
         {/* DENTRO DO BOLÃO (Rotas com ID dinâmico) */}
         {/* Dashboard agora é específico da liga */}
