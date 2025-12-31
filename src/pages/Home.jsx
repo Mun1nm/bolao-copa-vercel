@@ -1,15 +1,31 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { collectionGroup, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../services/firebaseConfig';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { useAdmin } from '../hooks/useAdmin';
 
 export default function Home() {
+  const navigate = useNavigate();
   const [user] = useAuthState(auth);
   const { isAdmin } = useAdmin();
   const [leagues, setLeagues] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Verifica se existe um convite pendente guardado
+    const pendingInvite = localStorage.getItem('pendingInvite');
+
+    if (pendingInvite) {
+      console.log("Convite pendente encontrado! Redirecionando...");
+      
+      // 1. Limpa o storage para não entrar em loop infinito
+      localStorage.removeItem('pendingInvite');
+      
+      // 2. Manda o usuário de volta para a tela do convite
+      navigate(`/convite/${pendingInvite}`);
+    }
+  }, [navigate]);
 
   useEffect(() => {
     const fetchMyLeagues = async () => {
