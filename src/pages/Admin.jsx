@@ -120,19 +120,19 @@ export default function Admin() {
     const awayScore = parseInt(score?.away);
 
     try {
+      // ETAPA 1: Atualizar Jogo e Palpites (Seguro)
       const batch = writeBatch(db);
       const matchRef = doc(db, 'matches', matchId);
       
-      // 1. Atualiza o placar do jogo
       batch.update(matchRef, { status: 'finished', homeScore, awayScore });
 
-      // 2. Busca TODOS os palpites para este jogo (de todos os bolões)
       const guessesSnap = await getDocs(query(collection(db, 'guesses'), where('matchId', '==', matchId)));
       
+      // Lista para guardar dados necessários para a Etapa 2
+      const memberUpdatesData = [];
+
       guessesSnap.forEach(guessDoc => {
         const guess = guessDoc.data();
-        
-        // Se for um palpite antigo sem leagueId, ignoramos (ou tratamos como legado)
         if (!guess.leagueId) return;
 
         const oldPoints = guess.pointsEarned || 0; 
@@ -142,7 +142,7 @@ export default function Admin() {
         const gH = guess.homeGuess; 
         const gA = guess.awayGuess;
 
-        // Regra de Pontuação (Padrão)
+        // Lógica de Pontos
         if (gH === homeScore && gA === awayScore) { 
           newPoints = 3; isExact = true; 
         } else {
@@ -157,19 +157,42 @@ export default function Admin() {
         if (oldPoints !== 3 && newPoints === 3) deltaExact = 1;
 
         if (deltaPoints !== 0 || deltaExact !== 0) {
-          // A. Atualiza o documento do Palpite
+          // Atualiza o Palpite no Batch (Isso é seguro)
           batch.update(guessDoc.ref, { pointsEarned: newPoints });
 
-          // B. Atualiza o MEMBRO DENTRO DO BOLÃO ESPECÍFICO (Não mais o User global)
-          const memberRef = doc(db, 'leagues', guess.leagueId, 'members', guess.userId);
-          batch.update(memberRef, { 
-            totalPoints: increment(deltaPoints), 
-            exactHits: increment(deltaExact) 
+          // Guarda dados para atualizar o membro depois
+          memberUpdatesData.push({
+            leagueId: guess.leagueId,
+            userId: guess.userId,
+            deltaPoints,
+            deltaExact
           });
         }
       });
 
+      // Commit da Etapa 1 (Salva jogo e palpites)
       await batch.commit();
+
+      // ETAPA 2: Atualizar Membros Individualmente (Blindado contra usuários excluídos)
+      const memberPromises = memberUpdatesData.map(async (data) => {
+        const memberRef = doc(db, 'leagues', data.leagueId, 'members', data.userId);
+        try {
+          await updateDoc(memberRef, { 
+            totalPoints: increment(data.deltaPoints), 
+            exactHits: increment(data.deltaExact) 
+          });
+        } catch (error) {
+          // Se o usuário não existe mais, apenas ignora e não quebra o app
+          if (error.code === 'not-found') {
+            console.warn(`Usuário ${data.userId} não encontrado. Pontos não computados.`);
+            return;
+          }
+          console.error(`Erro ao atualizar membro ${data.userId}:`, error);
+        }
+      });
+
+      await Promise.all(memberPromises);
+
       setMsg('Ranking de todos os bolões atualizado!'); 
       setEditingMatchId(null); loadData();
 
@@ -194,11 +217,13 @@ export default function Admin() {
   const executeUnfinishMatch = async (matchId) => {
     setLoading(true); closeModal();
     try {
+      // ETAPA 1: Resetar Jogo e Palpites (Seguro)
       const batch = writeBatch(db);
       const matchRef = doc(db, 'matches', matchId);
       batch.update(matchRef, { status: 'scheduled', homeScore: null, awayScore: null });
       
       const guessesSnap = await getDocs(query(collection(db, 'guesses'), where('matchId', '==', matchId)));
+      const memberUpdatesData = [];
       
       guessesSnap.forEach(guessDoc => {
         const guess = guessDoc.data();
@@ -209,16 +234,35 @@ export default function Admin() {
         if (pointsToRemove > 0) {
           batch.update(guessDoc.ref, { pointsEarned: 0 });
           
-          // Reverte pontos na subcoleção de membros
-          const memberRef = doc(db, 'leagues', guess.leagueId, 'members', guess.userId);
-          batch.update(memberRef, { 
-            totalPoints: increment(-pointsToRemove), 
-            exactHits: increment(pointsToRemove === 3 ? -1 : 0) 
+          memberUpdatesData.push({
+            leagueId: guess.leagueId,
+            userId: guess.userId,
+            pointsToRemove,
+            wasExact: pointsToRemove === 3
           });
         }
       });
       
-      await batch.commit(); setMsg('Jogo reaberto.'); loadData();
+      // Salva o reset do jogo e dos palpites
+      await batch.commit();
+
+      // ETAPA 2: Remover pontos dos Membros (Blindado)
+      const memberPromises = memberUpdatesData.map(async (data) => {
+        const memberRef = doc(db, 'leagues', data.leagueId, 'members', data.userId);
+        try {
+          await updateDoc(memberRef, { 
+            totalPoints: increment(-data.pointsToRemove), 
+            exactHits: increment(data.wasExact ? -1 : 0) 
+          });
+        } catch (error) {
+          if (error.code === 'not-found') return; // Ignora fantasma
+          console.error(error);
+        }
+      });
+
+      await Promise.all(memberPromises);
+
+      setMsg('Jogo reaberto.'); loadData();
     } catch (error) { console.error(error); setMsg('Erro ao reverter.'); } 
     finally { setLoading(false); }
   };
