@@ -103,13 +103,26 @@ export default function LeagueManager() {
 
   const executeDeleteLeague = async () => {
     try {
-      // Deleta o documento principal do bolão
-      // Obs: No Firestore, subcoleções (membros) ficam "órfãs", mas inacessíveis pelo app.
-      // Para um app simples, isso é suficiente, pois o bolão some da lista de todos.
+      // 1. Busca todos os membros desta liga
+      const membersRef = collection(db, 'leagues', leagueId, 'members');
+      const membersSnap = await getDocs(membersRef);
+
+      // 2. Apaga um por um (Promise.all faz tudo ao mesmo tempo para ser rápido)
+      // Isso é necessário para sumir da lista "Meus Bolões" dos usuários
+      const deletePromises = membersSnap.docs.map((memberDoc) => 
+        deleteDoc(memberDoc.ref)
+      );
+      
+      await Promise.all(deletePromises);
+
+      // (Opcional) Se você tiver uma subcoleção de 'palpites' dentro da liga, 
+      // precisaria repetir o processo acima para ela também.
+
+      // 3. Finalmente, apaga o documento PAI (A Liga em si)
       await deleteDoc(doc(db, 'leagues', leagueId));
       
       closeModal();
-      navigate('/'); // Manda o dono de volta para a Home
+      navigate('/'); 
     } catch (error) {
       console.error("Erro ao excluir bolão:", error);
       alert("Erro ao excluir. Tente novamente.");
