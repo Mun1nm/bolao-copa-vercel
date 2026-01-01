@@ -21,33 +21,32 @@ export default function Dashboard() {
 
   useEffect(() => {
     const loadData = async () => {
+      // 1. Carrega dados do Bolão
       if (leagueId) {
         const leagueDoc = await getDoc(doc(db, 'leagues', leagueId));
         if (leagueDoc.exists()) setLeagueData(leagueDoc.data());
       }
 
-      const cachedTeams = localStorage.getItem('worldcup_teams_cache');
-      let teamsMap = {};
+      // 2. Carrega Times (SEMPRE atualizado do banco, sem cache)
+      const teamsSnap = await getDocs(collection(db, 'teams'));
+      const teamsMap = {};
+      teamsSnap.forEach(t => teamsMap[t.id] = { id: t.id, ...t.data() });
+      setTeams(teamsMap);
 
-      if (cachedTeams) {
-        teamsMap = JSON.parse(cachedTeams);
-        setTeams(teamsMap);
-      } else {
-        const teamsSnap = await getDocs(collection(db, 'teams'));
-        teamsSnap.forEach(t => teamsMap[t.id] = { id: t.id, ...t.data() });
-        setTeams(teamsMap);
-        localStorage.setItem('worldcup_teams_cache', JSON.stringify(teamsMap));
-      }
-
+      // 3. Carrega Jogos
       const matchesSnap = await getDocs(collection(db, 'matches'));
       const matchList = matchesSnap.docs.map(d => ({ id: d.id, ...d.data() }))
         .sort((a,b) => new Date(a.date) - new Date(b.date));
       setMatches(matchList);
 
+      // 4. Configura Grupos (Lógica original)
       const groups = [...new Set(matchList.map(m => m.group))].sort();
       setUniqueGroups(groups);
+      
+      // Seleciona o primeiro grupo da lista (ex: 'A') se houver grupos
       if (groups.length > 0) setActiveGroup(groups[0]);
 
+      // 5. Carrega Palpites do Usuário
       if (auth.currentUser) {
         const q = query(
           collection(db, 'guesses'), 
@@ -64,6 +63,7 @@ export default function Dashboard() {
       }
     };
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
   const getGuessStatus = (match, guess) => {
