@@ -1,63 +1,54 @@
 import { useState, useEffect } from 'react';
 import { db } from '../services/firebaseConfig';
-import { collection, addDoc, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where, writeBatch, increment } from 'firebase/firestore';
+import { collection, addDoc, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc, query, where, writeBatch, increment } from 'firebase/firestore';
 
 export default function Admin() {
   const [tab, setTab] = useState('results'); 
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState('');
+  
+  const [toast, setToast] = useState(null);
 
   const [teams, setTeams] = useState([]);
   const [matches, setMatches] = useState([]);
-  
-  // LÓGICA DE VISUALIZAÇÃO DE GRUPOS (Para a aba Resultados)
   const [activeGroupResults, setActiveGroupResults] = useState('');
   const [uniqueGroups, setUniqueGroups] = useState([]);
-
-  // ESTADOS DE EDIÇÃO
   const [editingTeam, setEditingTeam] = useState(null); 
   const [editingMatchId, setEditingMatchId] = useState(null); 
-
-  // FORMS
-  // Mudança 1: Removemos isoCode e adicionamos group no Time
   const [teamForm, setTeamForm] = useState({ id: '', name: '', flagUrl: '', group: '' });
-  
-  // Mudança 2: Estado auxiliar para filtrar a criação de jogos
   const [selectedGroupForMatch, setSelectedGroupForMatch] = useState('');
   const [matchForm, setMatchForm] = useState({ homeTeamId: '', awayTeamId: '', date: '' });
-  
   const [scores, setScores] = useState({}); 
-
-  // MODAL CONFIG
   const [modalConfig, setModalConfig] = useState({ 
     isOpen: false, title: '', message: '', action: null, isDestructive: false 
   });
+
+  const showToast = (message) => {
+    setToast(message);
+    setTimeout(() => setToast(null), 3000);
+  };
+
   const closeModal = () => setModalConfig({ ...modalConfig, isOpen: false });
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
-    // Carrega Times
     const teamsSnap = await getDocs(collection(db, 'teams'));
     const teamsList = teamsSnap.docs.map(d => ({id: d.id, ...d.data()}));
     setTeams(teamsList);
 
-    // Carrega Jogos
     const matchesSnap = await getDocs(collection(db, 'matches'));
     const matchList = matchesSnap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => new Date(a.date) - new Date(b.date));
     setMatches(matchList);
 
-    // Extrai Grupos Únicos dos JOGOS JÁCRIADOS para a navegação
     const groups = [...new Set(matchList.map(m => m.group))].sort();
     setUniqueGroups(groups);
     if (groups.length > 0 && !activeGroupResults) setActiveGroupResults(groups[0]);
   };
 
-  // --- TIMES (LÓGICA NOVA) ---
   const handleSaveTeam = async (e) => {
     e.preventDefault();
     if (!teamForm.group || teamForm.group.length !== 1) {
-      setMsg("O grupo deve ter apenas 1 letra (Ex: A, B, G).");
+      showToast("O grupo deve ter apenas 1 letra (Ex: A, B, G).");
       return;
     }
 
@@ -69,50 +60,50 @@ export default function Admin() {
         id: teamId, 
         name: teamForm.name, 
         flagUrl: teamForm.flagUrl,
-        group: groupUpper // Agora o time "sabe" qual é seu grupo
+        group: groupUpper
       };
 
       if (editingTeam) {
         await updateDoc(doc(db, 'teams', teamForm.id), payload);
-        setMsg('Time atualizado!');
+        showToast('Time atualizado!');
       } else {
         await setDoc(doc(db, 'teams', teamId), payload);
-        setMsg('Time criado!');
+        showToast('Time criado!');
       }
       loadData(); setEditingTeam(null); setTeamForm({ id: '', name: '', flagUrl: '', group: '' });
-    } catch (error) { console.error(error); setMsg('Erro ao salvar time.'); }
+    } catch (error) { console.error(error); showToast('Erro ao salvar time.'); }
   };
 
   const handleEditTeamClick = (team) => {
     setEditingTeam(team); 
-    // Garante que o form receba o grupo existente ou vazio
     setTeamForm({ ...team, group: team.group || '' }); 
     setTab('teams'); 
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // --- JOGOS (LÓGICA NOVA) ---
-  
-  // Filtra os times baseado no grupo selecionado no Dropdown
   const availableTeams = teams.filter(t => t.group === selectedGroupForMatch);
 
   const handleCreateMatch = async (e) => {
     e.preventDefault();
-    if (!selectedGroupForMatch) { setMsg("Selecione um grupo primeiro."); return; }
+    if (!selectedGroupForMatch) { showToast("Selecione um grupo primeiro."); return; }
 
     try {
       await addDoc(collection(db, 'matches'), { 
         ...matchForm, 
-        group: selectedGroupForMatch, // Usa o grupo do filtro
+        group: selectedGroupForMatch,
         status: 'scheduled', 
         homeScore: null, 
         awayScore: null 
       });
-      setMsg('Jogo criado!'); loadData();
-    } catch (error) { setMsg('Erro ao criar jogo.'); }
+      showToast('Jogo criado!'); 
+      loadData();
+      
+      // --- MUDANÇA 1: Limpa os campos para evitar repetição ---
+      setMatchForm({ homeTeamId: '', awayTeamId: '', date: '' }); 
+      
+    } catch (error) { showToast('Erro ao criar jogo.'); }
   };
 
-  // --- RESULTADOS: LÓGICA DE CONFIRMAÇÃO ---
   const executeUpdateResult = async (matchId) => {
     setLoading(true); closeModal();
     const score = scores[matchId];
@@ -120,15 +111,12 @@ export default function Admin() {
     const awayScore = parseInt(score?.away);
 
     try {
-      // ETAPA 1: Atualizar Jogo e Palpites (Seguro)
       const batch = writeBatch(db);
       const matchRef = doc(db, 'matches', matchId);
       
       batch.update(matchRef, { status: 'finished', homeScore, awayScore });
 
       const guessesSnap = await getDocs(query(collection(db, 'guesses'), where('matchId', '==', matchId)));
-      
-      // Lista para guardar dados necessários para a Etapa 2
       const memberUpdatesData = [];
 
       guessesSnap.forEach(guessDoc => {
@@ -142,7 +130,6 @@ export default function Admin() {
         const gH = guess.homeGuess; 
         const gA = guess.awayGuess;
 
-        // Lógica de Pontos
         if (gH === homeScore && gA === awayScore) { 
           newPoints = 3; isExact = true; 
         } else {
@@ -157,10 +144,7 @@ export default function Admin() {
         if (oldPoints !== 3 && newPoints === 3) deltaExact = 1;
 
         if (deltaPoints !== 0 || deltaExact !== 0) {
-          // Atualiza o Palpite no Batch (Isso é seguro)
           batch.update(guessDoc.ref, { pointsEarned: newPoints });
-
-          // Guarda dados para atualizar o membro depois
           memberUpdatesData.push({
             leagueId: guess.leagueId,
             userId: guess.userId,
@@ -170,10 +154,8 @@ export default function Admin() {
         }
       });
 
-      // Commit da Etapa 1 (Salva jogo e palpites)
       await batch.commit();
 
-      // ETAPA 2: Atualizar Membros Individualmente (Blindado contra usuários excluídos)
       const memberPromises = memberUpdatesData.map(async (data) => {
         const memberRef = doc(db, 'leagues', data.leagueId, 'members', data.userId);
         try {
@@ -182,9 +164,8 @@ export default function Admin() {
             exactHits: increment(data.deltaExact) 
           });
         } catch (error) {
-          // Se o usuário não existe mais, apenas ignora e não quebra o app
           if (error.code === 'not-found') {
-            console.warn(`Usuário ${data.userId} não encontrado. Pontos não computados.`);
+            console.warn(`Usuário ${data.userId} não encontrado.`);
             return;
           }
           console.error(`Erro ao atualizar membro ${data.userId}:`, error);
@@ -193,10 +174,10 @@ export default function Admin() {
 
       await Promise.all(memberPromises);
 
-      setMsg('Ranking de todos os bolões atualizado!'); 
+      showToast('Ranking atualizado!'); 
       setEditingMatchId(null); loadData();
 
-    } catch (error) { console.error(error); setMsg('Erro ao atualizar.'); } 
+    } catch (error) { console.error(error); showToast('Erro ao atualizar.'); } 
     finally { setLoading(false); }
   };
 
@@ -205,7 +186,7 @@ export default function Admin() {
     if (!score && !editingMatchId) return; 
     const homeScore = parseInt(score?.home);
     const awayScore = parseInt(score?.away);
-    if (isNaN(homeScore) || isNaN(awayScore)) { setMsg("Placar inválido"); return; }
+    if (isNaN(homeScore) || isNaN(awayScore)) { showToast("Placar inválido"); return; }
 
     setModalConfig({
         isOpen: true, title: 'Finalizar Jogo',
@@ -217,7 +198,6 @@ export default function Admin() {
   const executeUnfinishMatch = async (matchId) => {
     setLoading(true); closeModal();
     try {
-      // ETAPA 1: Resetar Jogo e Palpites (Seguro)
       const batch = writeBatch(db);
       const matchRef = doc(db, 'matches', matchId);
       batch.update(matchRef, { status: 'scheduled', homeScore: null, awayScore: null });
@@ -233,7 +213,6 @@ export default function Admin() {
         
         if (pointsToRemove > 0) {
           batch.update(guessDoc.ref, { pointsEarned: 0 });
-          
           memberUpdatesData.push({
             leagueId: guess.leagueId,
             userId: guess.userId,
@@ -243,10 +222,8 @@ export default function Admin() {
         }
       });
       
-      // Salva o reset do jogo e dos palpites
       await batch.commit();
 
-      // ETAPA 2: Remover pontos dos Membros (Blindado)
       const memberPromises = memberUpdatesData.map(async (data) => {
         const memberRef = doc(db, 'leagues', data.leagueId, 'members', data.userId);
         try {
@@ -255,15 +232,15 @@ export default function Admin() {
             exactHits: increment(data.wasExact ? -1 : 0) 
           });
         } catch (error) {
-          if (error.code === 'not-found') return; // Ignora fantasma
+          if (error.code === 'not-found') return;
           console.error(error);
         }
       });
 
       await Promise.all(memberPromises);
 
-      setMsg('Jogo reaberto.'); loadData();
-    } catch (error) { console.error(error); setMsg('Erro ao reverter.'); } 
+      showToast('Jogo reaberto.'); loadData();
+    } catch (error) { console.error(error); showToast('Erro ao reverter.'); } 
     finally { setLoading(false); }
   };
 
@@ -278,33 +255,101 @@ export default function Admin() {
   const executeDeleteMatch = async (matchId) => {
     setLoading(true); 
     closeModal();
+    
     try {
-      // Deleta o documento do jogo
-      await deleteDoc(doc(db, 'matches', matchId));
+      const matchRef = doc(db, 'matches', matchId);
+      const matchSnap = await getDoc(matchRef);
       
-      // Atualiza a lista na tela removendo o jogo excluído
+      if (!matchSnap.exists()) {
+        showToast("Jogo não encontrado.");
+        setLoading(false);
+        return;
+      }
+
+      const matchData = matchSnap.data();
+
+      // 1. SE O JOGO ESTAVA FINALIZADO, PRECISAMOS REVERTER OS PONTOS ANTES
+      if (matchData.status === 'finished') {
+        const guessesSnap = await getDocs(query(collection(db, 'guesses'), where('matchId', '==', matchId)));
+        const memberUpdatesData = [];
+        
+        // Batch para deletar os palpites (limpeza de lixo)
+        const batch = writeBatch(db);
+
+        guessesSnap.forEach(guessDoc => {
+          const guess = guessDoc.data();
+          
+          // Marca o palpite para exclusão
+          batch.delete(guessDoc.ref);
+
+          if (!guess.leagueId) return;
+
+          const pointsToRemove = guess.pointsEarned || 0;
+          
+          // Prepara dados para remover pontos do membro
+          if (pointsToRemove > 0) {
+            memberUpdatesData.push({
+              leagueId: guess.leagueId,
+              userId: guess.userId,
+              pointsToRemove,
+              wasExact: pointsToRemove === 3
+            });
+          }
+        });
+
+        // Executa a exclusão dos palpites
+        await batch.commit();
+
+        // Executa a reversão dos pontos dos membros (Ranking)
+        const memberPromises = memberUpdatesData.map(async (data) => {
+          const memberRef = doc(db, 'leagues', data.leagueId, 'members', data.userId);
+          try {
+            await updateDoc(memberRef, { 
+              totalPoints: increment(-data.pointsToRemove), 
+              exactHits: increment(data.wasExact ? -1 : 0) 
+            });
+          } catch (error) {
+            // Ignora se o usuário já foi excluído
+            if (error.code === 'not-found') return;
+            console.error(error);
+          }
+        });
+
+        await Promise.all(memberPromises);
+      } else {
+        // Se não estava finalizado, apenas deleta os palpites associados para não deixar lixo
+        const guessesSnap = await getDocs(query(collection(db, 'guesses'), where('matchId', '==', matchId)));
+        const batch = writeBatch(db);
+        guessesSnap.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+
+      // 2. AGORA SIM, EXCLUI O JOGO
+      await deleteDoc(matchRef);
+      
       setMatches(prev => prev.filter(m => m.id !== matchId));
-      setMsg('Jogo excluído com sucesso.');
+      showToast('Jogo excluído e ranking recalculado (se necessário).');
+
     } catch (error) {
       console.error(error);
-      setMsg('Erro ao excluir jogo.');
+      showToast('Erro ao excluir jogo.');
     } finally {
       setLoading(false);
     }
   };
 
   const confirmDeleteMatch = (match) => {
-    // Aviso extra de segurança
+    // A mensagem agora é mais tranquila, pois o sistema cuida de tudo
     const warning = match.status === 'finished' 
-      ? "ATENÇÃO: Este jogo está FINALIZADO. Se você excluí-lo agora, os pontos já distribuídos NÃO serão removidos dos usuários. O ideal é 'Reabrir' o jogo antes de excluir. Deseja excluir mesmo assim?"
-      : "Tem certeza que deseja excluir este jogo permanentemente?";
+      ? "Este jogo está FINALIZADO. Ao excluir, o sistema irá reverter automaticamente os pontos distribuídos e atualizar o ranking. Deseja continuar?"
+      : "Tem certeza que deseja excluir este jogo e todos os palpites associados?";
 
     setModalConfig({
       isOpen: true,
       title: 'Excluir Jogo',
       message: warning,
       action: () => executeDeleteMatch(match.id),
-      isDestructive: true // Botão vermelho
+      isDestructive: true 
     });
   };
 
@@ -312,7 +357,6 @@ export default function Admin() {
 
   return (
     <div className="container">
-      {/* MODAL */}
       {modalConfig.isOpen && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
@@ -334,9 +378,6 @@ export default function Admin() {
         <button className={`tab-btn ${tab === 'teams' ? 'active' : ''}`} onClick={()=>setTab('teams')}>Times</button>
       </div>
 
-      {msg && <div style={{padding: '1rem', background: '#dcfce7', color: '#166534', marginBottom: '1.5rem', borderRadius: '8px', fontWeight: '600'}}>{msg}</div>}
-
-      {/* --- ABA RESULTADOS --- */}
       {tab === 'results' && (
         <>
           <div className="groups-nav">
@@ -359,9 +400,14 @@ export default function Admin() {
               return (
                 <div key={m.id} className="card-jogo" style={{ borderColor: isEditing ? 'var(--accent)' : ''}}>
                   <div className="card-content">
+                    {/* --- MUDANÇA 2: Mostrar data formatada em vez de "AGENDADO" --- */}
                     <div className="match-info" style={{marginTop: 0, marginBottom: '1rem', borderTop: 'none'}}>
-                      {isFinished ? '✅ FINALIZADO' : '📅 AGENDADO'}
+                      {isFinished 
+                        ? '✅ FINALIZADO' 
+                        : `📅 ${new Date(m.date).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                      }
                     </div>
+
                     <div className="match-header">
                       <div className="team-box"><img src={h.flagUrl} alt={h.name}/><span>{h.id}</span></div>
                       {isFinished && !isEditing ? (
@@ -375,51 +421,24 @@ export default function Admin() {
                       )}
                       <div className="team-box"><img src={a.flagUrl} alt={a.name}/><span>{a.id}</span></div>
                     </div>
-                    <div style={{
-                      display: 'flex', 
-                      justifyContent: 'center', // Centraliza o conteúdo principal
-                      alignItems: 'center',
-                      marginTop: '1.5rem', 
-                      position: 'relative', // <--- Importante para o botão de excluir funcionar
-                      minHeight: '40px' // Garante altura caso só tenha o botão de excluir
-                    }}>
-                      {/* --- BOTÕES CENTRAIS (Finalizar / Salvar / Reabrir) --- */}
+                    <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', marginTop: '1.5rem', position: 'relative', minHeight: '40px'}}>
                         <div style={{display: 'flex', gap: '0.5rem'}}>
                           {(!isFinished || isEditing) && (
                             <button className="login-btn" style={{marginTop:0, padding:'0.5rem 1.5rem', width: 'auto'}} onClick={() => confirmUpdateResult(m.id)} disabled={loading}>
                               {loading ? '...' : (isEditing ? 'Salvar Placar' : 'Finalizar Jogo')}
                             </button>
                           )}
-
                           {isFinished && !isEditing && (
                             <>
                               <button onClick={() => setEditingMatchId(m.id)} className="btn-secondary" title="Editar Placar">✏️</button>
                               <button onClick={() => confirmUnfinishMatch(m.id)} className="btn-secondary" style={{color: '#f59e0b', borderColor: '#f59e0b'}} title="Reabrir">↩</button>
                             </>
                           )}
-
-                          {isEditing && (
-                            <button onClick={() => setEditingMatchId(null)} className="btn-secondary" style={{color: '#666'}}>Cancelar</button>
-                          )}
+                          {isEditing && <button onClick={() => setEditingMatchId(null)} className="btn-secondary" style={{color: '#666'}}>Cancelar</button>}
                         </div>
-
-                        {/* --- BOTÃO DE EXCLUIR (No Canto Direito) --- */}
                         {!isEditing && (
-                          <button 
-                            onClick={() => confirmDeleteMatch(m)} 
-                            className="btn-delete-x"
-                            style={{
-                              position: 'absolute', // Tira ele do fluxo para não empurrar o centro
-                              right: 0,             // Cola na direita
-                              top: '50%',           // Centraliza verticalmente
-                              transform: 'translateY(-50%)' // Ajuste fino vertical
-                            }}
-                            title="Excluir Jogo"
-                          >
-                            ✕
-                          </button>
+                          <button onClick={() => confirmDeleteMatch(m)} className="btn-delete-x" style={{position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)'}} title="Excluir Jogo">✕</button>
                         )}
-
                       </div>
                   </div>
                 </div>
@@ -429,70 +448,43 @@ export default function Admin() {
         </>
       )}
 
-      {/* --- ABA NOVO JOGO (LÓGICA NOVA) --- */}
       {tab === 'matches' && (
         <div className="card-jogo">
           <div className="card-content">
             <h3 style={{marginBottom: '1rem'}}>Agendar Novo Jogo</h3>
             <form onSubmit={handleCreateMatch} className="admin-form">
-              
-              {/* Passo 1: Escolher o Grupo */}
               <div>
                 <label className="form-label">Selecione o Grupo</label>
-                <input 
-                  className="form-input" 
-                  placeholder="Ex: G (Digite para filtrar os times)" 
-                  value={selectedGroupForMatch} 
-                  maxLength={1}
+                <input className="form-input" placeholder="Ex: G" value={selectedGroupForMatch} maxLength={1}
                   onChange={e => {
-                    const val = e.target.value.toUpperCase();
-                    setSelectedGroupForMatch(val);
-                    // Reseta os times selecionados se mudar o grupo
+                    setSelectedGroupForMatch(e.target.value.toUpperCase());
                     setMatchForm(prev => ({...prev, homeTeamId: '', awayTeamId: ''}));
                   }}
                 />
               </div>
-
-              {/* Passo 2: Dropdowns filtrados */}
               <div style={{display: 'flex', gap: '1rem'}}>
                 <div style={{flex: 1}}>
                     <label className="form-label">Time da Casa</label>
-                    <select 
-                        className="form-input" 
-                        value={matchForm.homeTeamId}
-                        disabled={!selectedGroupForMatch}
-                        onChange={e => setMatchForm({...matchForm, homeTeamId: e.target.value})}
-                    >
+                    <select className="form-input" value={matchForm.homeTeamId} disabled={!selectedGroupForMatch} onChange={e => setMatchForm({...matchForm, homeTeamId: e.target.value})}>
                     <option value="">Selecione...</option>
                     {availableTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                 </div>
                 <div style={{flex: 1}}>
                     <label className="form-label">Time Visitante</label>
-                    <select 
-                        className="form-input" 
-                        value={matchForm.awayTeamId}
-                        disabled={!selectedGroupForMatch}
-                        onChange={e => setMatchForm({...matchForm, awayTeamId: e.target.value})}
-                    >
+                    <select className="form-input" value={matchForm.awayTeamId} disabled={!selectedGroupForMatch} onChange={e => setMatchForm({...matchForm, awayTeamId: e.target.value})}>
                     <option value="">Selecione...</option>
                     {availableTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                 </div>
               </div>
-
-              <div>
-                  <label className="form-label">Data e Hora</label>
-                  <input type="datetime-local" className="form-input" onChange={e => setMatchForm({...matchForm, date: e.target.value})} />
-              </div>
-              
+              <div><label className="form-label">Data e Hora</label><input type="datetime-local" className="form-input" value={matchForm.date} onChange={e => setMatchForm({...matchForm, date: e.target.value})} /></div>
               <button className="login-btn" disabled={!selectedGroupForMatch}>Agendar Jogo</button>
             </form>
           </div>
         </div>
       )}
 
-      {/* --- ABA TIMES (LÓGICA NOVA) --- */}
       {tab === 'teams' && (
         <>
           <div className="card-jogo">
@@ -509,25 +501,16 @@ export default function Admin() {
                     <input className="form-input" placeholder="Ex: Brasil" value={teamForm.name} onChange={e => setTeamForm({...teamForm, name: e.target.value})} />
                   </div>
                 </div>
-                
                 <div style={{display: 'flex', gap: '1rem'}}>
                   <div style={{flex: 1}}>
-                    {/* CAMPO DE GRUPO NOVO */}
                     <label className="form-label">Grupo</label>
-                    <input 
-                        className="form-input" 
-                        placeholder="A" 
-                        maxLength={1}
-                        value={teamForm.group} 
-                        onChange={e => setTeamForm({...teamForm, group: e.target.value.toUpperCase()})} 
-                    />
+                    <input className="form-input" placeholder="A" maxLength={1} value={teamForm.group} onChange={e => setTeamForm({...teamForm, group: e.target.value.toUpperCase()})} />
                   </div>
                   <div style={{flex: 2}}>
                     <label className="form-label">URL da Bandeira</label>
                     <input className="form-input" placeholder="https://..." value={teamForm.flagUrl} onChange={e => setTeamForm({...teamForm, flagUrl: e.target.value})} />
                   </div>
                 </div>
-                
                 <div style={{display: 'flex', gap: '1rem'}}>
                   <button className="login-btn" style={{flex: 1}}>Salvar Time</button>
                   {editingTeam && <button type="button" className="btn-secondary" onClick={()=>{setEditingTeam(null); setTeamForm({id:'',name:'',flagUrl:'', group:''})}}>Cancelar</button>}
@@ -540,13 +523,18 @@ export default function Admin() {
               <div key={t.id} className="team-card-mini">
                 <img src={t.flagUrl} width="40" alt={t.name} style={{borderRadius: '4px'}}/>
                 <div style={{fontWeight: 'bold'}}>{t.id}</div>
-                {/* Mostra o Grupo no card do time */}
                 <div style={{fontSize: '0.8rem', color: 'var(--primary)', fontWeight:'bold'}}>Grupo {t.group || '?'}</div>
                 <button onClick={() => handleEditTeamClick(t)} className="btn-secondary" style={{width: '100%', marginTop: '0.5rem', fontSize: '0.8rem'}}>Editar</button>
               </div>
             ))}
           </div>
         </>
+      )}
+
+      {toast && (
+        <div className="toast-notification">
+          ✅ {toast}
+        </div>
       )}
     </div>
   );
