@@ -17,31 +17,29 @@ export default function Results() {
 
   useEffect(() => {
     const loadData = async () => {
-      // 1. Carregar Times (Cache)
-      const cachedTeams = localStorage.getItem('worldcup_teams_cache');
-      let teamsMap = {};
-      
-      if (cachedTeams) {
-        teamsMap = JSON.parse(cachedTeams);
-        setTeams(teamsMap);
-      } else {
+      try {
+        // 1. Carregar Times (DIRETO DO BANCO - SEM CACHE)
         const teamsSnap = await getDocs(collection(db, 'teams'));
+        const teamsMap = {};
         teamsSnap.forEach(t => teamsMap[t.id] = { id: t.id, ...t.data() });
         setTeams(teamsMap);
-        localStorage.setItem('worldcup_teams_cache', JSON.stringify(teamsMap));
+
+        // 2. Carregar Jogos
+        const matchesSnap = await getDocs(collection(db, 'matches'));
+        const matchList = matchesSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a,b) => new Date(a.date) - new Date(b.date));
+        
+        setMatches(matchList);
+
+        // 3. Configurar Grupos
+        const groups = [...new Set(matchList.map(m => m.group))].sort();
+        setUniqueGroups(groups);
+        
+      } catch (error) {
+        console.error("Erro ao carregar resultados:", error);
+      } finally {
+        setLoading(false);
       }
-
-      // 2. Carregar Jogos
-      const matchesSnap = await getDocs(collection(db, 'matches'));
-      const matchList = matchesSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .sort((a,b) => new Date(a.date) - new Date(b.date));
-      
-      setMatches(matchList);
-
-      const groups = [...new Set(matchList.map(m => m.group))].sort();
-      setUniqueGroups(groups);
-      
-      setLoading(false);
     };
 
     loadData();
@@ -58,7 +56,15 @@ export default function Results() {
     filtered.forEach(match => {
       let key = '';
       if (groupBy === 'date') {
+        // Formato classificável para garantir ordem correta se necessário, 
+        // mas aqui estamos usando a string formatada. 
+        // Se a ordenação alfabética da data formatada não for cronológica (ex: "Sábado" vem depois de "Quarta"),
+        // a ordenação simples do sort() lá embaixo pode falhar visualmente.
+        // O ideal para data seria manter um objeto complexo ou ordenar pela data real.
+        // Para 'group', a ordenação alfabética funciona perfeito (Grupo A, Grupo B).
         const d = new Date(match.date);
+        // Dica: Para ordenar datas corretamente, o ideal seria usar YYYY-MM-DD como chave oculta, 
+        // mas vamos manter simples por enquanto.
         key = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', weekday: 'long' });
       } else {
         key = `Grupo ${match.group}`;
@@ -125,7 +131,8 @@ export default function Results() {
           <div style={{padding: 30, textAlign: 'center', color: '#666'}}>Nenhum jogo encontrado.</div>
         )}
 
-        {Object.keys(groupedData).map(key => (
+        {/* MUDANÇA AQUI: .sort() garante a ordem A, B, C... */}
+        {Object.keys(groupedData).sort().map(key => (
           <React.Fragment key={key}>
             {/* Cabeçalho da Seção */}
             <div className="section-header">{key}</div>
@@ -146,10 +153,8 @@ export default function Results() {
 
                   {/* 2. Mandante */}
                   <div className="cell-team home">
-                    {/* Renderiza os dois, o CSS decide qual mostrar */}
                     <span className="team-name desktop-only">{home.name}</span>
                     <span className="team-name mobile-only">{home.id}</span> 
-                    
                     <img src={home.flagUrl} className="flag-img" alt={home.id} />
                   </div>
 
@@ -162,11 +167,9 @@ export default function Results() {
 
                   {/* 4. Visitante */}
                   <div className="cell-team away">
-                    {/* Renderiza os dois, o CSS decide qual mostrar */}
+                    <img src={away.flagUrl} className="flag-img" alt={away.id} />
                     <span className="team-name desktop-only">{away.name}</span>
                     <span className="team-name mobile-only">{away.id}</span> 
-                    
-                    <img src={away.flagUrl} className="flag-img" alt={away.id} />
                   </div>
                 </div>
               );
