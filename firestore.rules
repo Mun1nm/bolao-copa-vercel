@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Leagues ----
+    match /leagues/{leagueId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && request.auth.uid == resource.data.ownerId;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.ownerId;
+
+      match /members/{memberId} {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null;
+      }
+    }
+
+    // ---- Guesses (palpites) ----
+    match /guesses/{guessId} {
+      allow read: if request.auth != null;
+
+      allow create, update: if request.auth != null
+        && request.auth.uid == request.resource.data.userId
+        && isBeforeDeadline(request.resource.data.leagueId);
+
+      allow delete: if request.auth != null
+        && request.auth.uid == resource.data.userId;
+    }
+
+    // ---- Matches & Teams (read-only para participantes) ----
+    match /matches/{matchId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isGlobalAdmin();
+    }
+
+    match /teams/{teamId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isGlobalAdmin();
+    }
+
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ---- Funções auxiliares ----
+    function isBeforeDeadline(leagueId) {
+      let league = get(/databases/$(database)/documents/leagues/$(leagueId));
+      // Se o bolão não tem campo deadline, permite sem restrição (bolões legados)
+      return !('deadline' in league.data) || league.data.deadline == null
+             || request.time < league.data.deadline;
+    }
+
+    function isGlobalAdmin() {
+      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return userDoc.data.isAdmin == true;
+    }
+  }
+}

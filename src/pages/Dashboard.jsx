@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom'; 
+import { useEffect, useState, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import { collection, getDocs, doc, setDoc, getDoc, query, where } from 'firebase/firestore';
 import { db, auth } from '../services/firebaseConfig';
 import { useLeagueGuard } from '../hooks/useLeagueGuard';
@@ -15,9 +15,10 @@ export default function Dashboard() {
   const [myGuesses, setMyGuesses] = useState({});
   const [activeGroup, setActiveGroup] = useState('');
   const [uniqueGroups, setUniqueGroups] = useState([]);
-  const [pendingGuesses, setPendingGuesses] = useState({}); 
-  const [loadingIds, setLoadingIds] = useState([]); 
+  const [pendingGuesses, setPendingGuesses] = useState({});
+  const [loadingIds, setLoadingIds] = useState([]);
   const [toast, setToast] = useState(null);
+  const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
     const loadData = async () => {
@@ -66,6 +67,12 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
+  // Atualiza o relógio local a cada segundo (para countdown)
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, [leagueId]);
+
   const getGuessStatus = (match, guess) => {
     if (!guess) return { type: 'wrong', label: 'Não palpitou', points: 0 };
     const mH = match.homeScore; const mA = match.awayScore;
@@ -86,8 +93,63 @@ export default function Dashboard() {
     setPendingGuesses(prev => ({ ...prev, [matchId]: { ...prev[matchId], [field]: value } }));
   };
 
+  const deadlineDate = leagueData?.deadline?.toDate() || null;
+  const isDeadlinePassed = deadlineDate ? now >= deadlineDate : false;
+
+  const formatDeadline = () => {
+    if (!deadlineDate) return '';
+    return deadlineDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const formatCountdown = useCallback(() => {
+    if (!deadlineDate) return null;
+    const diff = deadlineDate - now;
+    if (diff <= 0) return null;
+    const days = Math.floor(diff / 86400000);
+    const hours = Math.floor((diff % 86400000) / 3600000);
+    const minutes = Math.floor((diff % 3600000) / 60000);
+    const seconds = Math.floor((diff % 60000) / 1000);
+
+    const timeBlocks = [];
+    if (days > 0) timeBlocks.push({ label: 'dias', value: days });
+    timeBlocks.push({ label: 'horas', value: hours });
+    timeBlocks.push({ label: 'min', value: minutes });
+    if (days === 0) timeBlocks.push({ label: 'seg', value: seconds });
+
+    return (
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        {timeBlocks.map((block) => (
+          <div key={block.label} style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            background: 'white', 
+            padding: '6px 10px', 
+            borderRadius: '8px', 
+            minWidth: '50px', 
+            boxShadow: '0 2px 4px rgba(22, 101, 52, 0.08)',
+            border: '1px solid rgba(22, 101, 52, 0.1)'
+          }}>
+             <span style={{ fontSize: '1.25rem', fontWeight: '800', color: '#166534', lineHeight: '1', fontVariantNumeric: 'tabular-nums' }}>
+               {String(block.value).padStart(2, '0')}
+             </span>
+             <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: '#15803d', fontWeight: '700', marginTop: '4px', letterSpacing: '0.5px' }}>
+               {block.label}
+             </span>
+          </div>
+        ))}
+      </div>
+    );
+  }, [deadlineDate, now]);
+
   // --- LÓGICA INTELIGENTE DE SALVAMENTO ---
   const handleSaveGuess = async (matchId) => {
+    if (isDeadlinePassed) {
+      setToast("Prazo encerrado! Palpite não pode ser salvo.");
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+
     const userId = auth.currentUser.uid;
     const guessId = `${leagueId}_${matchId}_${userId}`;
     
@@ -134,7 +196,16 @@ export default function Dashboard() {
       setToast("Palpite salvo!");
       setTimeout(() => setToast(null), 2000);
 
-    } catch (e) { console.error(e); alert("Erro ao salvar palpite"); } 
+    } catch (e) {
+      console.error(e);
+      // Firestore Security Rules rejeitou — prazo encerrado no servidor
+      if (e?.code === 'permission-denied') {
+        setToast("⛔ Prazo encerrado! Palpite bloqueado pelo servidor.");
+      } else {
+        setToast("Erro ao salvar palpite.");
+      }
+      setTimeout(() => setToast(null), 3500);
+    } 
     finally { setLoadingIds(prev => prev.filter(id => id !== matchId)); }
   };
 
@@ -164,6 +235,55 @@ export default function Dashboard() {
         <button onClick={() => setShowRules(true)} className="btn-secondary" style={{border: 'none', background: 'transparent', fontSize: '1.5rem', padding: '0 10px'}} title="Ver Regras">ℹ️</button>
       </div>
 
+      {deadlineDate && (
+        <div style={{
+          marginBottom: 24,
+          background: isDeadlinePassed 
+            ? 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)' 
+            : 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+          borderRadius: 16,
+          padding: '16px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 16,
+          boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)',
+          border: `1px solid ${isDeadlinePassed ? '#fca5a5' : '#86efac'}`
+        }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <span style={{ fontSize: '1.2rem', filter: isDeadlinePassed ? 'grayscale(1)' : 'none' }}>{isDeadlinePassed ? '🔒' : '⏳'}</span>
+              <h3 style={{ 
+                margin: 0, 
+                color: isDeadlinePassed ? '#991b1b' : '#166534', 
+                fontSize: '1rem',
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5
+              }}>
+                {isDeadlinePassed ? 'Prazo Encerrado' : 'Tempo Restante'}
+              </h3>
+            </div>
+            <p style={{ margin: 0, fontSize: '0.9rem', color: isDeadlinePassed ? '#7f1d1d' : '#15803d', fontWeight: 500 }}>
+              Fechamento: {formatDeadline()}
+            </p>
+          </div>
+          
+          <div style={{ display: 'flex', justifyContent: 'flex-end', flex: '1 1 auto' }}>
+            {!isDeadlinePassed ? (
+               formatCountdown()
+            ) : (
+              <div style={{ background: 'white', padding: '10px 16px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(185, 28, 28, 0.1)', border: '1px solid rgba(185, 28, 28, 0.2)' }}>
+                <span style={{ fontWeight: 800, color: '#b91c1c', textTransform: 'uppercase', fontSize: '0.9rem', letterSpacing: '1px' }}>
+                  Palpites Bloqueados
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="groups-nav">
         {uniqueGroups.map(group => (
           <button key={group} className={`group-tab ${activeGroup === group ? 'active' : ''}`} onClick={() => setActiveGroup(group)}>
@@ -188,6 +308,7 @@ export default function Dashboard() {
           const hasChanges = pendingGuesses[match.id] !== undefined;
           const isSaving = loadingIds.includes(match.id);
           const isFinished = match.status === 'finished';
+          const isLocked = isFinished || isDeadlinePassed;
           const status = isFinished ? getGuessStatus(match, saved) : null;
 
           return (
@@ -196,7 +317,7 @@ export default function Dashboard() {
                 <div className="match-header">
                   <div className="team-box"><img src={home.flagUrl} alt={home.name}/><span>{home.id}</span></div>
                   <div className="score-box">
-                    {isFinished ? (
+                    {isLocked ? (
                       <span style={{fontSize: '1.5rem', color: '#333'}}>{saved.homeGuess ?? '-'} x {saved.awayGuess ?? '-'}</span>
                     ) : (
                       <>
@@ -235,8 +356,8 @@ export default function Dashboard() {
                 
                 {/* Resto do código igual... */}
                 {!isFinished && <div className="match-info">{new Date(match.date).toLocaleDateString('pt-BR')}</div>}
-                
-                {!isFinished && hasChanges && (
+
+                {!isLocked && hasChanges && (
                   <button onClick={() => handleSaveGuess(match.id)} className="btn-save-guess" disabled={isSaving}>
                     {isSaving ? '...' : 'Confirmar'}
                   </button>
