@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, collection, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { db, auth } from '../services/firebaseConfig';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { useLeagueGuard } from '../hooks/useLeagueGuard';
@@ -16,6 +16,10 @@ export default function LeagueManager() {
   const [league, setLeague] = useState(null);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const [editingDeadline, setEditingDeadline] = useState(false);
+  const [newDeadline, setNewDeadline] = useState('');
+  const [savingDeadline, setSavingDeadline] = useState(false);
 
   // Estados para UI Customizada
   const [showToast, setShowToast] = useState(false); // "Link Copiado"
@@ -83,6 +87,41 @@ export default function LeagueManager() {
         closeModal();
       }
     });
+  };
+
+  const formatDeadline = (deadlineTs) => {
+    if (!deadlineTs) return null;
+    return deadlineTs.toDate().toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+  };
+
+  const toInputValue = (deadlineTs) => {
+    if (!deadlineTs) return '2026-06-11T16:00';
+    const d = deadlineTs.toDate();
+    // Converter UTC para Brasília (UTC-3)
+    const brasiliaOffset = -3 * 60;
+    const local = new Date(d.getTime() + brasiliaOffset * 60000);
+    return local.toISOString().slice(0, 16);
+  };
+
+  const handleSaveDeadline = async () => {
+    if (!newDeadline) return;
+    setSavingDeadline(true);
+    try {
+      const deadlineDate = new Date(newDeadline + ':00-03:00');
+      const ts = Timestamp.fromDate(deadlineDate);
+      await updateDoc(doc(db, 'leagues', leagueId), { deadline: ts });
+      setLeague(prev => ({ ...prev, deadline: ts }));
+      setEditingDeadline(false);
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao salvar prazo.');
+    } finally {
+      setSavingDeadline(false);
+    }
   };
 
   const copyInviteLink = () => {
@@ -177,6 +216,47 @@ export default function LeagueManager() {
             <p style={{fontSize: '0.9rem', color: '#666', margin: 0}}>Compartilhe este link para as pessoas entrarem.</p>
           </div>
           <button onClick={copyInviteLink} className="btn-sm" style={{background:'#3b82f6', color:'white'}}>Copiar Link</button>
+        </div>
+      </div>
+
+      <div className="card-jogo" style={{marginBottom: '2rem'}}>
+        <div className="card-content">
+          <h4 style={{marginBottom: 8}}>Prazo para Palpites</h4>
+          {!editingDeadline ? (
+            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10}}>
+              <div>
+                {league?.deadline
+                  ? <span style={{color: '#15803d', fontWeight: 600}}>{formatDeadline(league.deadline)}</span>
+                  : <span style={{color: '#666'}}>Nenhum prazo definido</span>
+                }
+                <p style={{fontSize: '0.85rem', color: '#666', margin: '4px 0 0 0'}}>Horário de Brasília (UTC-3)</p>
+              </div>
+              <button
+                onClick={() => { setNewDeadline(toInputValue(league?.deadline)); setEditingDeadline(true); }}
+                className="btn-sm"
+                style={{background: '#3b82f6', color: 'white'}}
+              >
+                {league?.deadline ? 'Editar' : 'Definir'}
+              </button>
+            </div>
+          ) : (
+            <div>
+              <input
+                type="datetime-local"
+                className="form-input"
+                value={newDeadline}
+                onChange={e => setNewDeadline(e.target.value)}
+                style={{marginBottom: 10}}
+              />
+              <small style={{display: 'block', color: '#666', marginBottom: 10}}>Horário de Brasília (UTC-3)</small>
+              <div style={{display: 'flex', gap: 8}}>
+                <button onClick={handleSaveDeadline} disabled={savingDeadline} className="btn-sm" style={{background: '#16a34a', color: 'white'}}>
+                  {savingDeadline ? 'Salvando...' : 'Salvar'}
+                </button>
+                <button onClick={() => setEditingDeadline(false)} className="btn-sm btn-secondary" style={{border: 'none'}}>Cancelar</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

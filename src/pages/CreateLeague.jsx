@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../services/firebaseConfig';
-import { collection, addDoc, doc, setDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, Timestamp } from 'firebase/firestore';
 import { useAdmin } from '../hooks/useAdmin';
 
 export default function CreateLeague() {
   const [name, setName] = useState('');
   const [rules, setRules] = useState('');
   
+  const [deadline, setDeadline] = useState('2026-06-11T16:00');
+
   // MUDANÇA: entryFee começa como string vazia para não aparecer "0"
   const [entryFee, setEntryFee] = useState(''); 
   const [prizes, setPrizes] = useState([100]); 
@@ -74,13 +76,15 @@ export default function CreateLeague() {
       // Filtra prêmios vazios antes de salvar
       const finalPrizes = prizes.map(p => Number(p) || 0);
 
+      const deadlineDate = new Date(deadline + ':00-03:00');
       const leagueRef = await addDoc(collection(db, 'leagues'), {
         name: name,
         rules: rules,
         ownerId: user.uid,
         createdAt: new Date(),
         entryFee: Number(entryFee) || 0,
-        prizeDistribution: finalPrizes
+        prizeDistribution: finalPrizes,
+        deadline: Timestamp.fromDate(deadlineDate)
       });
 
       await setDoc(doc(db, 'leagues', leagueRef.id, 'members', user.uid), {
@@ -120,6 +124,18 @@ export default function CreateLeague() {
             <div style={{marginTop: '1rem'}}>
               <label className="form-label">Regras Gerais (Opcional)</label>
               <textarea className="form-input" placeholder="Descreva critérios..." value={rules} onChange={e => setRules(e.target.value)} style={{minHeight: '80px', fontFamily: 'inherit'}} />
+            </div>
+
+            <div style={{marginTop: '1rem'}}>
+              <label className="form-label">Data Limite para Palpites</label>
+              <input
+                type="datetime-local"
+                className="form-input"
+                value={deadline}
+                onChange={e => setDeadline(e.target.value)}
+                required
+              />
+              <small style={{color: '#666'}}>Horário de Brasília (UTC-3). Após esse momento, ninguém poderá alterar palpites.</small>
             </div>
 
             <hr style={{margin: '20px 0', borderColor: '#e5e7eb'}} />
