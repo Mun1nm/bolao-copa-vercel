@@ -2,11 +2,33 @@ import { signInWithPopup } from 'firebase/auth';
 import { auth, googleProvider, db } from '../services/firebaseConfig';
 import { doc, setDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+
+const getLoginErrorMessage = (error) => {
+  if (error?.code === 'auth/unauthorized-domain') {
+    return 'Este domínio não está autorizado no Firebase. Use http://localhost:5173/ ou adicione o domínio atual em Authentication > Settings > Authorized domains.';
+  }
+
+  if (error?.code === 'auth/popup-closed-by-user') {
+    return 'O popup de login foi fechado antes de concluir. Tente novamente e escolha sua conta Google.';
+  }
+
+  if (error?.code === 'auth/popup-blocked') {
+    return 'O navegador bloqueou o popup. Libere popups para este site e tente novamente.';
+  }
+
+  return `Não foi possível fazer login${error?.code ? ` (${error.code})` : ''}.`;
+};
 
 export default function Login() {
   const navigate = useNavigate();
+  const [errorMsg, setErrorMsg] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
+    setErrorMsg('');
+    setLoading(true);
+
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
@@ -38,6 +60,9 @@ export default function Login() {
 
     } catch (error) {
       console.error("Erro login", error);
+      setErrorMsg(getLoginErrorMessage(error));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -49,8 +74,13 @@ export default function Login() {
         <p style={{ color: '#6b7280', marginBottom: '2rem' }}>
           Faça seus palpites e dispute com amigos!
         </p>
-        <button onClick={handleLogin} className="login-btn">
-          Entrar com Google
+        {errorMsg && (
+          <p style={{ color: '#b91c1c', background: '#fee2e2', padding: '0.75rem', borderRadius: 8, marginBottom: '1rem', fontSize: '0.9rem' }}>
+            {errorMsg}
+          </p>
+        )}
+        <button onClick={handleLogin} className="login-btn" disabled={loading}>
+          {loading ? 'Entrando...' : 'Entrar com Google'}
         </button>
       </div>
     </div>

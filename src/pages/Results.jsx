@@ -5,6 +5,23 @@ import { useParams } from 'react-router-dom';
 import { calculateGroupStandings } from '../utils/standingsCalculator';
 import GroupStandingsTable from '../components/GroupStandingsTable';
 
+const getMatchDate = (date) => {
+  if (date?.toDate) return date.toDate();
+  return new Date(date);
+};
+
+const formatDateGroupKey = (date) => {
+  const d = getMatchDate(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatDateGroupLabel = (date) => (
+  getMatchDate(date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', weekday: 'long' })
+);
+
 export default function Results() {
   const { leagueId } = useParams();
 
@@ -30,7 +47,7 @@ export default function Results() {
         // 2. Carregar Jogos
         const matchesSnap = await getDocs(collection(db, 'matches'));
         const matchList = matchesSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-          .sort((a,b) => new Date(a.date) - new Date(b.date));
+          .sort((a,b) => getMatchDate(a.date) - getMatchDate(b.date));
 
         setMatches(matchList);
 
@@ -80,17 +97,22 @@ export default function Results() {
     const grouped = {};
     filtered.forEach(match => {
       let key = '';
+      let label = '';
       if (groupBy === 'date') {
-        const d = new Date(match.date);
-        key = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', weekday: 'long' });
+        key = formatDateGroupKey(match.date);
+        label = formatDateGroupLabel(match.date);
       } else {
         key = `Grupo ${match.group}`;
+        label = key;
       }
 
-      if (!grouped[key]) grouped[key] = [];
-      grouped[key].push(match);
+      if (!grouped[key]) grouped[key] = { key, label, matches: [] };
+      grouped[key].matches.push(match);
     });
-    return grouped;
+    return Object.values(grouped).sort((a, b) => {
+      if (groupBy === 'date') return a.key.localeCompare(b.key);
+      return a.key.localeCompare(b.key, 'pt-BR', { numeric: true });
+    });
   };
 
   // Grupos a exibir na view de classificacao
@@ -178,25 +200,30 @@ export default function Results() {
       {/* --- VIEW: JOGOS --- */}
       {viewMode === 'matches' && (
         <div className="results-card">
-          {Object.keys(groupedData).length === 0 && (
+          {groupedData.length === 0 && (
             <div style={{padding: 30, textAlign: 'center', color: '#666'}}>Nenhum jogo encontrado.</div>
           )}
 
-          {Object.keys(groupedData).sort().map(key => (
-            <React.Fragment key={key}>
-              <div className="section-header">{key}</div>
+          {groupedData.map(group => (
+            <React.Fragment key={group.key}>
+              <div className="section-header">{group.label}</div>
 
-              {groupedData[key].map(match => {
+              {group.matches.map(match => {
                 const home = teams[match.homeTeamId];
                 const away = teams[match.awayTeamId];
                 if (!home || !away) return null;
 
                 const isFinished = match.status === 'finished';
-                const time = new Date(match.date).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+                const matchDate = getMatchDate(match.date);
+                const date = matchDate.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'});
+                const time = matchDate.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
 
                 return (
-                  <div key={match.id} className="match-row">
-                    <div className="cell-time">{time}</div>
+                  <div key={match.id} className={`match-row ${groupBy === 'group' ? 'with-date' : ''}`}>
+                    <div className="cell-time">
+                      {groupBy === 'group' && <span className="match-date">{date}</span>}
+                      <span>{time}</span>
+                    </div>
 
                     <div className="cell-team home">
                       <span className="team-name desktop-only">{home.name}</span>
