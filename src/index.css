@@ -937,15 +937,28 @@ input[type=number] {
   gap: 10px;
 }
 
+.match-row.with-date {
+  grid-template-columns: 76px 1fr 80px 1fr;
+}
+
 .match-row:last-child { border-bottom: none; }
 
 /* --- COLUNAS --- */
 
 /* 1. Hora */
 .cell-time {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   font-size: 0.8rem;
   color: #94a3b8;
   text-align: center;
+  line-height: 1.2;
+}
+
+.match-date {
+  color: #64748b;
+  font-weight: 700;
 }
 
 /* 2. Times (Flexbox interno para alinhar bandeira e texto) */
