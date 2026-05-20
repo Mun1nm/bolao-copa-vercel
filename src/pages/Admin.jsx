@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { db } from '../services/firebaseConfig';
-import { collection, addDoc, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc, query, where, writeBatch, increment } from 'firebase/firestore';
+import { collection, addDoc, getDocs, getDoc, doc, setDoc, updateDoc, query, where, writeBatch, increment } from 'firebase/firestore';
+import { useAdmin } from '../hooks/useAdmin';
 
 export default function Admin() {
+  const { isAdmin, loading: adminLoading } = useAdmin();
   const [tab, setTab] = useState('results'); 
   const [loading, setLoading] = useState(false);
   
@@ -29,9 +31,9 @@ export default function Admin() {
 
   const closeModal = () => setModalConfig({ ...modalConfig, isOpen: false });
 
-  useEffect(() => { loadData(); }, []);
+  const loadData = useCallback(async () => {
+    if (!isAdmin) return;
 
-  const loadData = async () => {
     const teamsSnap = await getDocs(collection(db, 'teams'));
     const teamsList = teamsSnap.docs.map(d => ({id: d.id, ...d.data()}));
     setTeams(teamsList);
@@ -43,7 +45,9 @@ export default function Admin() {
     const groups = [...new Set(matchList.map(m => m.group))].sort();
     setUniqueGroups(groups);
     if (groups.length > 0 && !activeGroupResults) setActiveGroupResults(groups[0]);
-  };
+  }, [activeGroupResults, isAdmin]);
+
+  useEffect(() => { loadData(); }, [loadData]);
 
   const handleSaveTeam = async (e) => {
     e.preventDefault();
@@ -101,7 +105,23 @@ export default function Admin() {
       // --- MUDANÇA 1: Limpa os campos para evitar repetição ---
       setMatchForm({ homeTeamId: '', awayTeamId: '', date: '' }); 
       
-    } catch (error) { showToast('Erro ao criar jogo.'); }
+    } catch { showToast('Erro ao criar jogo.'); }
+  };
+
+  const queueExistingMemberUpdates = async (batch, memberUpdatesData, getUpdatePayload) => {
+    const memberRefs = memberUpdatesData.map((data) => ({
+      data,
+      ref: doc(db, 'leagues', data.leagueId, 'members', data.userId)
+    }));
+    const memberSnaps = await Promise.all(memberRefs.map(({ ref }) => getDoc(ref)));
+
+    memberSnaps.forEach((memberSnap, index) => {
+      if (!memberSnap.exists()) {
+        console.warn(`Membro ${memberRefs[index].data.userId} não encontrado.`);
+        return;
+      }
+      batch.update(memberRefs[index].ref, getUpdatePayload(memberRefs[index].data));
+    });
   };
 
   const executeUpdateResult = async (matchId) => {
@@ -125,13 +145,11 @@ export default function Admin() {
 
         const oldPoints = guess.pointsEarned || 0; 
         let newPoints = 0; 
-        let isExact = false;
-        
         const gH = guess.homeGuess; 
         const gA = guess.awayGuess;
 
         if (gH === homeScore && gA === awayScore) { 
-          newPoints = 3; isExact = true; 
+          newPoints = 3;
         } else {
           const realWinner = homeScore > awayScore ? 'home' : (homeScore < awayScore ? 'away' : 'draw');
           const guessWinner = gH > gA ? 'home' : (gH < gA ? 'away' : 'draw');
@@ -154,25 +172,12 @@ export default function Admin() {
         }
       });
 
+      await queueExistingMemberUpdates(batch, memberUpdatesData, (data) => ({
+          totalPoints: increment(data.deltaPoints),
+          exactHits: increment(data.deltaExact)
+      }));
+
       await batch.commit();
-
-      const memberPromises = memberUpdatesData.map(async (data) => {
-        const memberRef = doc(db, 'leagues', data.leagueId, 'members', data.userId);
-        try {
-          await updateDoc(memberRef, { 
-            totalPoints: increment(data.deltaPoints), 
-            exactHits: increment(data.deltaExact) 
-          });
-        } catch (error) {
-          if (error.code === 'not-found') {
-            console.warn(`Usuário ${data.userId} não encontrado.`);
-            return;
-          }
-          console.error(`Erro ao atualizar membro ${data.userId}:`, error);
-        }
-      });
-
-      await Promise.all(memberPromises);
 
       showToast('Ranking atualizado!'); 
       setEditingMatchId(null); loadData();
@@ -222,22 +227,12 @@ export default function Admin() {
         }
       });
       
+      await queueExistingMemberUpdates(batch, memberUpdatesData, (data) => ({
+          totalPoints: increment(-data.pointsToRemove),
+          exactHits: increment(data.wasExact ? -1 : 0)
+      }));
+
       await batch.commit();
-
-      const memberPromises = memberUpdatesData.map(async (data) => {
-        const memberRef = doc(db, 'leagues', data.leagueId, 'members', data.userId);
-        try {
-          await updateDoc(memberRef, { 
-            totalPoints: increment(-data.pointsToRemove), 
-            exactHits: increment(data.wasExact ? -1 : 0) 
-          });
-        } catch (error) {
-          if (error.code === 'not-found') return;
-          console.error(error);
-        }
-      });
-
-      await Promise.all(memberPromises);
 
       showToast('Jogo reaberto.'); loadData();
     } catch (error) { console.error(error); showToast('Erro ao reverter.'); } 
@@ -297,36 +292,22 @@ export default function Admin() {
           }
         });
 
-        // Executa a exclusão dos palpites
+        await queueExistingMemberUpdates(batch, memberUpdatesData, (data) => ({
+            totalPoints: increment(-data.pointsToRemove),
+            exactHits: increment(data.wasExact ? -1 : 0)
+        }));
+
+        batch.delete(matchRef);
         await batch.commit();
-
-        // Executa a reversão dos pontos dos membros (Ranking)
-        const memberPromises = memberUpdatesData.map(async (data) => {
-          const memberRef = doc(db, 'leagues', data.leagueId, 'members', data.userId);
-          try {
-            await updateDoc(memberRef, { 
-              totalPoints: increment(-data.pointsToRemove), 
-              exactHits: increment(data.wasExact ? -1 : 0) 
-            });
-          } catch (error) {
-            // Ignora se o usuário já foi excluído
-            if (error.code === 'not-found') return;
-            console.error(error);
-          }
-        });
-
-        await Promise.all(memberPromises);
       } else {
         // Se não estava finalizado, apenas deleta os palpites associados para não deixar lixo
         const guessesSnap = await getDocs(query(collection(db, 'guesses'), where('matchId', '==', matchId)));
         const batch = writeBatch(db);
         guessesSnap.forEach(d => batch.delete(d.ref));
+        batch.delete(matchRef);
         await batch.commit();
       }
 
-      // 2. AGORA SIM, EXCLUI O JOGO
-      await deleteDoc(matchRef);
-      
       setMatches(prev => prev.filter(m => m.id !== matchId));
       showToast('Jogo excluído e ranking recalculado (se necessário).');
 
@@ -354,6 +335,9 @@ export default function Admin() {
   };
 
   const filteredMatches = matches.filter(m => m.group === activeGroupResults);
+
+  if (adminLoading) return <div className="container">Verificando acesso...</div>;
+  if (!isAdmin) return <div className="container">Acesso negado.</div>;
 
   return (
     <div className="container">

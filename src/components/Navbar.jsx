@@ -50,7 +50,7 @@ export default function Navbar() {
           const docRef = doc(db, 'leagues', activeLeagueId);
           const docSnap = await getDoc(docRef);
           setIsLeagueOwner(docSnap.exists() && docSnap.data().ownerId === user.uid);
-        } catch (e) { setIsLeagueOwner(false); }
+        } catch { setIsLeagueOwner(false); }
       } else { setIsLeagueOwner(false); }
     };
     checkOwner();

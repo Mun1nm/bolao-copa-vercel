@@ -79,7 +79,7 @@ export default function InviteLink() {
         joinedAt: new Date()
       });
       setStatus('pending');
-    } catch (error) {
+    } catch {
       setErrorMsg("Erro ao enviar solicitação.");
     } finally {
       setJoining(false);

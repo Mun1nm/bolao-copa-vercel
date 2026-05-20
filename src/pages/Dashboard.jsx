@@ -64,7 +64,6 @@ export default function Dashboard() {
       }
     };
     loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
   // Atualiza o relógio local a cada segundo (para countdown)
