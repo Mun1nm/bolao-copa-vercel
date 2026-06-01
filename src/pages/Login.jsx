@@ -1,6 +1,6 @@
 import { signInWithPopup } from 'firebase/auth';
 import { auth, googleProvider, db } from '../services/firebaseConfig';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 
@@ -32,14 +32,19 @@ export default function Login() {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
+      const userRef = doc(db, 'users', user.uid);
+      const userSnap = await getDoc(userRef);
+      const currentName = userSnap.exists() ? userSnap.data().displayName : '';
       
-      // Salva ou atualiza usuário no banco
-      await setDoc(doc(db, 'users', user.uid), {
-        displayName: user.displayName,
+      // Salva ou atualiza usuário no banco sem sobrescrever nome customizado.
+      await setDoc(userRef, {
+        displayName: currentName || user.displayName || '',
         email: user.email,
         photoURL: user.photoURL,
         lastLogin: new Date()
       }, { merge: true });
+
+      localStorage.setItem('showNamePrompt', user.uid);
 
       // --- A MÁGICA DO REDIRECIONAMENTO AQUI ---
       

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { auth, db } from '../services/firebaseConfig';
-import { doc, getDoc, collectionGroup, query, where, getDocs, writeBatch } from 'firebase/firestore';
-import { signOut } from 'firebase/auth';
+import { doc, getDoc, collectionGroup, query, where, getDocs, writeBatch, setDoc } from 'firebase/firestore';
+import { signOut, updateProfile } from 'firebase/auth';
 import { useAdmin } from '../hooks/useAdmin';
 import { useAuthState } from 'react-firebase-hooks/auth';
 
@@ -14,6 +14,11 @@ export default function Navbar() {
   
   const [isOpen, setIsOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [displayName, setDisplayName] = useState('');
+  const [isNameModalOpen, setIsNameModalOpen] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [isSavingName, setIsSavingName] = useState(false);
+  const [nameError, setNameError] = useState('');
   const dropdownRef = useRef(null);
 
   const { isAdmin: isGlobalAdmin } = useAdmin();
@@ -56,11 +61,37 @@ export default function Navbar() {
     checkOwner();
   }, [activeLeagueId, user]);
 
+  useEffect(() => {
+    const loadProfileName = async () => {
+      if (!user) return;
+      try {
+        const userSnap = await getDoc(doc(db, 'users', user.uid));
+        const storedName = userSnap.exists() ? userSnap.data().displayName : '';
+        const nextName = storedName || user.displayName || '';
+        setDisplayName(nextName);
+        setNameInput(nextName);
+
+        if (localStorage.getItem('showNamePrompt') === user.uid) {
+          setIsNameModalOpen(true);
+          localStorage.removeItem('showNamePrompt');
+        }
+      } catch (error) {
+        console.error(error);
+        setDisplayName(user.displayName || '');
+        setNameInput(user.displayName || '');
+      }
+    };
+    loadProfileName();
+  }, [user]);
+
   // 3. Sincroniza Perfil
   useEffect(() => {
     const syncProfile = async () => {
       if (!user) return;
       try {
+        const userSnap = await getDoc(doc(db, 'users', user.uid));
+        const storedName = userSnap.exists() ? userSnap.data().displayName : '';
+        const profileName = storedName || user.displayName || '';
         const membersRef = collectionGroup(db, 'members');
         const q = query(membersRef, where('uid', '==', user.uid));
         const querySnapshot = await getDocs(q);
@@ -68,8 +99,8 @@ export default function Navbar() {
         let updatesCount = 0;
         querySnapshot.forEach((docSnap) => {
           const memberData = docSnap.data();
-          if (memberData.photoURL !== user.photoURL || memberData.displayName !== user.displayName) {
-            batch.update(docSnap.ref, { photoURL: user.photoURL, displayName: user.displayName });
+          if (memberData.photoURL !== user.photoURL || memberData.displayName !== profileName) {
+            batch.update(docSnap.ref, { photoURL: user.photoURL, displayName: profileName });
             updatesCount++;
           }
         });
@@ -78,6 +109,52 @@ export default function Navbar() {
     };
     syncProfile();
   }, [user]);
+
+  const handleSaveName = async (event) => {
+    event.preventDefault();
+    if (!user || isSavingName) return;
+
+    const trimmedName = nameInput.trim();
+    if (trimmedName.length < 2) {
+      setNameError('Informe um nome com pelo menos 2 caracteres.');
+      return;
+    }
+
+    setIsSavingName(true);
+    setNameError('');
+
+    try {
+      await updateProfile(user, { displayName: trimmedName });
+      await setDoc(doc(db, 'users', user.uid), {
+        displayName: trimmedName,
+        email: user.email,
+        photoURL: user.photoURL,
+        updatedAt: new Date()
+      }, { merge: true });
+
+      const membersRef = collectionGroup(db, 'members');
+      const q = query(membersRef, where('uid', '==', user.uid));
+      const querySnapshot = await getDocs(q);
+      const batch = writeBatch(db);
+      querySnapshot.forEach((docSnap) => {
+        batch.update(docSnap.ref, {
+          displayName: trimmedName,
+          photoURL: user.photoURL,
+          email: user.email
+        });
+      });
+      if (!querySnapshot.empty) await batch.commit();
+
+      setDisplayName(trimmedName);
+      setIsNameModalOpen(false);
+      setIsProfileOpen(false);
+    } catch (error) {
+      console.error(error);
+      setNameError('Não foi possível salvar o nome.');
+    } finally {
+      setIsSavingName(false);
+    }
+  };
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -103,6 +180,33 @@ export default function Navbar() {
 
   return (
     <nav className="navbar">
+      {isNameModalOpen && user && (
+        <div className="modal-overlay" onClick={() => setIsNameModalOpen(false)}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">Editar nome</div>
+            <form onSubmit={handleSaveName}>
+              <label className="form-label" htmlFor="displayName">Nome exibido no bolão</label>
+              <input
+                id="displayName"
+                className="form-input"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                maxLength={40}
+                autoFocus
+              />
+              {nameError && <p className="form-error">{nameError}</p>}
+              <div className="modal-actions" style={{marginTop: '1rem'}}>
+                <button type="button" onClick={() => setIsNameModalOpen(false)} className="btn-secondary" style={{border:'none'}}>
+                  Agora não
+                </button>
+                <button type="submit" className="btn-sm btn-success" disabled={isSavingName}>
+                  {isSavingName ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       <div className="nav-content">
         <Link to="/" className="nav-brand" onClick={closeMenu}>
           🏆 Bolão Copa
@@ -149,7 +253,7 @@ export default function Navbar() {
               
               <button className="user-menu-btn" onClick={() => setIsProfileOpen(!isProfileOpen)}>
                 <img src={user.photoURL} alt="User" referrerPolicy="no-referrer" className="nav-avatar-small"/>
-                <span className="user-name-label">{user.displayName}</span>
+                <span className="user-name-label">{displayName || user.displayName}</span>
                 <span style={{color: 'rgba(255,255,255,0.7)', fontSize: '0.7rem'}}>▼</span>
               </button>
 
@@ -178,6 +282,19 @@ export default function Navbar() {
 
                 {/* Divider 2: Garante espaçamento simétrico */}
                 {activeLeagueId && <div className="dropdown-divider"></div>}
+
+                <button
+                  onClick={() => {
+                    setNameInput(displayName || user.displayName || '');
+                    setNameError('');
+                    setIsNameModalOpen(true);
+                  }}
+                  className="dropdown-item"
+                >
+                  ✎ Editar nome
+                </button>
+
+                <div className="dropdown-divider"></div>
 
                 {/* --- BOTÃO SAIR COM ÍCONE SVG --- */}
                 <button onClick={handleLogout} className="dropdown-item logout">
