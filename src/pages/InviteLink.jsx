@@ -70,9 +70,12 @@ export default function InviteLink() {
   const handleJoinRequest = async () => {
     setJoining(true);
     try {
+      const userSnap = await getDoc(doc(db, 'users', user.uid));
+      const displayName = userSnap.exists() ? (userSnap.data().displayName || user.displayName) : user.displayName;
+
       await setDoc(doc(db, 'leagues', leagueId, 'members', user.uid), {
         uid: user.uid,
-        displayName: user.displayName,
+        displayName,
         photoURL: user.photoURL,
         email: user.email,
         status: 'pending',

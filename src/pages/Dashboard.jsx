@@ -12,7 +12,10 @@ export default function Dashboard() {
   const [showRules, setShowRules] = useState(false);
   const [matches, setMatches] = useState([]);
   const [teams, setTeams] = useState({});
+  const [leagueMembers, setLeagueMembers] = useState([]);
   const [myGuesses, setMyGuesses] = useState({});
+  const [leagueGuesses, setLeagueGuesses] = useState(null);
+  const [guessModal, setGuessModal] = useState({ isOpen: false, match: null, loading: false });
   const [activeGroup, setActiveGroup] = useState('');
   const [uniqueGroups, setUniqueGroups] = useState([]);
   const [pendingGuesses, setPendingGuesses] = useState({});
@@ -49,6 +52,16 @@ export default function Dashboard() {
 
       // 5. Carrega Palpites do Usuário
       if (auth.currentUser) {
+        const membersQ = query(
+          collection(db, 'leagues', leagueId, 'members'),
+          where('status', '==', 'active')
+        );
+        const membersSnap = await getDocs(membersQ);
+        const membersList = membersSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '', 'pt-BR'));
+        setLeagueMembers(membersList);
+
         const q = query(
           collection(db, 'guesses'), 
           where('userId', '==', auth.currentUser.uid),
@@ -73,17 +86,32 @@ export default function Dashboard() {
   }, [leagueId]);
 
   const getGuessStatus = (match, guess) => {
-    if (!guess) return { type: 'wrong', label: 'Não palpitou', points: 0 };
+    if (!guess || guess.homeGuess === undefined || guess.awayGuess === undefined) {
+      return { type: 'missed', label: 'Não palpitou', points: 0 };
+    }
+
     const mH = match.homeScore; const mA = match.awayScore;
     const gH = guess.homeGuess; const gA = guess.awayGuess;
+    const guessResult = gH > gA ? 'home' : (gH < gA ? 'away' : 'draw');
     
     if (guess.pointsEarned === 3) return { type: 'exact', label: 'Na Mosca!', points: 3 };
-    if (guess.pointsEarned === 1) return { type: 'partial', label: 'Acertou Vencedor', points: 1 };
+    if (guess.pointsEarned === 1) {
+      return {
+        type: 'partial',
+        label: guessResult === 'draw' ? 'Acertou Empate' : 'Acertou Vencedor',
+        points: 1
+      };
+    }
     
     if (mH === gH && mA === gA) return { type: 'exact', label: 'Na Mosca!', points: 3 };
     const matchWinner = mH > mA ? 'home' : (mH < mA ? 'away' : 'draw');
-    const guessWinner = gH > gA ? 'home' : (gH < gA ? 'away' : 'draw');
-    if (matchWinner === guessWinner) return { type: 'partial', label: 'Acertou Vencedor', points: 1 };
+    if (matchWinner === guessResult) {
+      return {
+        type: 'partial',
+        label: guessResult === 'draw' ? 'Acertou Empate' : 'Acertou Vencedor',
+        points: 1
+      };
+    }
 
     return { type: 'wrong', label: 'Errou', points: 0 };
   };
@@ -208,7 +236,38 @@ export default function Dashboard() {
     finally { setLoadingIds(prev => prev.filter(id => id !== matchId)); }
   };
 
+  const openGuessesModal = async (match) => {
+    if (!isDeadlinePassed) return;
+
+    setGuessModal({ isOpen: true, match, loading: leagueGuesses === null });
+
+    if (leagueGuesses !== null) return;
+
+    try {
+      const guessesQ = query(
+        collection(db, 'guesses'),
+        where('leagueId', '==', leagueId)
+      );
+      const guessesSnap = await getDocs(guessesQ);
+      setLeagueGuesses(guessesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (error) {
+      console.error(error);
+      setLeagueGuesses([]);
+    } finally {
+      setGuessModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
   const filteredMatches = matches.filter(m => m.group === activeGroup);
+  const modalMatch = guessModal.match;
+  const modalHome = modalMatch ? teams[modalMatch.homeTeamId] : null;
+  const modalAway = modalMatch ? teams[modalMatch.awayTeamId] : null;
+  const modalGuessesByUser = (leagueGuesses || [])
+    .filter(guess => guess.matchId === modalMatch?.id)
+    .reduce((acc, guess) => {
+      acc[guess.userId] = guess;
+      return acc;
+    }, {});
 
   return (
     <div className="container">
@@ -221,6 +280,44 @@ export default function Dashboard() {
             </div>
             <div className="modal-actions">
               <button onClick={() => setShowRules(false)} className="btn-secondary">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {guessModal.isOpen && modalMatch && (
+        <div className="modal-overlay" onClick={() => setGuessModal({ isOpen: false, match: null, loading: false })}>
+          <div className="modal-box guesses-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">
+              Palpites: {modalHome?.id} x {modalAway?.id}
+            </div>
+            <div className="guesses-list">
+              {guessModal.loading ? (
+                <div className="modal-text">Carregando palpites...</div>
+              ) : (
+                leagueMembers.map(member => {
+                  const guess = modalGuessesByUser[member.uid];
+                  const status = modalMatch.status === 'finished' ? getGuessStatus(modalMatch, guess) : null;
+
+                  return (
+                    <div key={member.uid} className="guess-row">
+                      <div className="user-cell">
+                        {member.photoURL && (
+                          <img src={member.photoURL} alt="Avatar" referrerPolicy="no-referrer" className="user-avatar" />
+                        )}
+                        <span className="text-truncate" title={member.displayName}>{member.displayName}</span>
+                      </div>
+                      <div className="guess-row-score">
+                        {guess ? `${guess.homeGuess} x ${guess.awayGuess}` : 'Não palpitou'}
+                        {status && <span className={`mini-status status-${status.type}`}>{status.label}</span>}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => setGuessModal({ isOpen: false, match: null, loading: false })} className="btn-secondary">Fechar</button>
             </div>
           </div>
         </div>
@@ -298,11 +395,11 @@ export default function Dashboard() {
           if (!home || !away) return null;
 
           const pending = pendingGuesses[match.id] || {};
-          const saved = myGuesses[match.id] || {};
+          const saved = myGuesses[match.id] || null;
           
           // O valor do input agora aceita vazio '' sem placeholder
-          const homeValue = pending.homeGuess ?? saved.homeGuess ?? '';
-          const awayValue = pending.awayGuess ?? saved.awayGuess ?? '';
+          const homeValue = pending.homeGuess ?? saved?.homeGuess ?? '';
+          const awayValue = pending.awayGuess ?? saved?.awayGuess ?? '';
           
           const hasChanges = pendingGuesses[match.id] !== undefined;
           const isSaving = loadingIds.includes(match.id);
@@ -313,11 +410,22 @@ export default function Dashboard() {
           return (
             <div key={match.id} className="card-jogo">
               <div className="card-content">
+                <div className="match-card-actions">
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    onClick={() => openGuessesModal(match)}
+                    disabled={!isDeadlinePassed}
+                    title={isDeadlinePassed ? 'Ver palpites do bolão' : 'Disponível após o fechamento dos palpites'}
+                  >
+                    👥
+                  </button>
+                </div>
                 <div className="match-header">
                   <div className="team-box"><img src={home.flagUrl} alt={home.name}/><span>{home.id}</span></div>
                   <div className="score-box">
                     {isLocked ? (
-                      <span style={{fontSize: '1.5rem', color: '#333'}}>{saved.homeGuess ?? '-'} x {saved.awayGuess ?? '-'}</span>
+                      <span style={{fontSize: '1.5rem', color: '#333'}}>{saved?.homeGuess ?? '-'} x {saved?.awayGuess ?? '-'}</span>
                     ) : (
                       <>
                         {/* INPUT CASA */}
@@ -364,7 +472,7 @@ export default function Dashboard() {
               </div>
               {isFinished && (
                 <div className="guess-feedback">
-                  <div className={`result-badge status-${status.type}`}><span className="dot"></span>{status.label} (+{saved.pointsEarned || 0})</div>
+                  <div className={`result-badge status-${status.type}`}><span className="dot"></span>{status.label} (+{status.points})</div>
                   <div className="official-score">Oficial: <strong>{match.homeScore} - {match.awayScore}</strong></div>
                 </div>
               )}

@@ -174,6 +174,7 @@ a.login-btn, a.btn-secondary {
 
 .card-content {
   padding: 1.5rem; /* O padding que antes estava no card todo */
+  position: relative;
 }
 
 .match-header {
@@ -480,6 +481,12 @@ a.login-btn, a.btn-secondary {
   border: 1px solid #fecaca;
 }
 
+.status-missed {
+  background-color: #e5e7eb;
+  color: #4b5563;
+  border: 1px solid #d1d5db;
+}
+
 .dot {
   width: 10px;
   height: 10px;
@@ -490,6 +497,7 @@ a.login-btn, a.btn-secondary {
 .status-exact .dot { background-color: #22c55e; }
 .status-partial .dot { background-color: #eab308; }
 .status-wrong .dot { background-color: #ef4444; }
+.status-missed .dot { background-color: #6b7280; }
 
 .official-score {
   font-size: 0.9rem;
@@ -555,6 +563,88 @@ a.login-btn, a.btn-secondary {
   border-color: var(--primary);
   background-color: white;
   box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
+}
+
+.form-error {
+  color: #b91c1c;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.match-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+  min-height: 30px;
+}
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: background 0.2s, border-color 0.2s, opacity 0.2s;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: white;
+  border-color: #94a3b8;
+}
+
+.icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.guesses-modal {
+  max-width: 560px;
+}
+
+.guesses-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 55vh;
+  overflow-y: auto;
+  margin: 1rem 0;
+}
+
+.guess-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.guess-row:last-child {
+  border-bottom: none;
+}
+
+.guess-row-score {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 4px;
+  font-weight: 700;
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+.mini-status {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 /* Select (Dropdown) */

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../services/firebaseConfig';
-import { collection, addDoc, doc, setDoc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import { useAdmin } from '../hooks/useAdmin';
 
 export default function CreateLeague() {
@@ -72,6 +72,8 @@ export default function CreateLeague() {
     setLoading(true);
     try {
       const user = auth.currentUser;
+      const userSnap = await getDoc(doc(db, 'users', user.uid));
+      const displayName = userSnap.exists() ? (userSnap.data().displayName || user.displayName) : user.displayName;
 
       // Filtra prêmios vazios antes de salvar
       const finalPrizes = prizes.map(p => Number(p) || 0);
@@ -89,7 +91,7 @@ export default function CreateLeague() {
 
       await setDoc(doc(db, 'leagues', leagueRef.id, 'members', user.uid), {
         uid: user.uid,
-        displayName: user.displayName,
+        displayName,
         photoURL: user.photoURL,
         email: user.email,
         status: 'active',
