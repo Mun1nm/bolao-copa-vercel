@@ -8,6 +8,7 @@ export default function CreateLeague() {
   const [name, setName] = useState('');
   const [rules, setRules] = useState('');
   
+  const [deadlineMode, setDeadlineMode] = useState('global');
   const [deadline, setDeadline] = useState('2026-06-11T16:00');
 
   // MUDANÇA: entryFee começa como string vazia para não aparecer "0"
@@ -86,6 +87,7 @@ export default function CreateLeague() {
         createdAt: new Date(),
         entryFee: Number(entryFee) || 0,
         prizeDistribution: finalPrizes,
+        deadlineMode,
         deadline: Timestamp.fromDate(deadlineDate)
       });
 
@@ -129,7 +131,40 @@ export default function CreateLeague() {
             </div>
 
             <div style={{marginTop: '1rem'}}>
-              <label className="form-label">Data Limite para Palpites</label>
+              <label className="form-label">Fechamento dos Palpites</label>
+              <div style={{display: 'grid', gap: 8, marginTop: 8}}>
+                <label className="choice-row">
+                  <input
+                    type="radio"
+                    name="deadlineMode"
+                    value="global"
+                    checked={deadlineMode === 'global'}
+                    onChange={() => setDeadlineMode('global')}
+                  />
+                  <span>
+                    <strong>Prazo único</strong>
+                    <small>Todos os palpites fecham no mesmo horário.</small>
+                  </span>
+                </label>
+                <label className="choice-row">
+                  <input
+                    type="radio"
+                    name="deadlineMode"
+                    value="perMatch"
+                    checked={deadlineMode === 'perMatch'}
+                    onChange={() => setDeadlineMode('perMatch')}
+                  />
+                  <span>
+                    <strong>Por partida</strong>
+                    <small>Cada jogo fecha no horário de início dele.</small>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {deadlineMode === 'global' && (
+              <div style={{marginTop: '1rem'}}>
+                <label className="form-label">Data Limite para Palpites</label>
               <input
                 type="datetime-local"
                 className="form-input"
@@ -138,7 +173,8 @@ export default function CreateLeague() {
                 required
               />
               <small style={{color: '#666'}}>Horário de Brasília (UTC-3). Após esse momento, ninguém poderá alterar palpites.</small>
-            </div>
+              </div>
+            )}
 
             <hr style={{margin: '20px 0', borderColor: '#e5e7eb'}} />
             

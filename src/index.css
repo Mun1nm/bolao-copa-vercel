@@ -565,6 +565,34 @@ a.login-btn, a.btn-secondary {
   box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
 }
 
+.choice-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.choice-row input {
+  margin-top: 3px;
+  accent-color: var(--primary);
+}
+
+.choice-row span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.choice-row small {
+  color: var(--text-light);
+  line-height: 1.35;
+}
+
 .form-error {
   color: #b91c1c;
   font-size: 0.85rem;
