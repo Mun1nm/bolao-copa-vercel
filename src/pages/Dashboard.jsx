@@ -439,7 +439,7 @@ export default function Dashboard() {
           const matchDeadlinePassed = isMatchDeadlinePassed(match);
           const isLocked = isFinished || matchDeadlinePassed;
           const status = isFinished ? getGuessStatus(match, saved) : null;
-          const matchDeadlineDate = getMatchDeadlineDate(match);
+          const matchDate = getMatchDate(match);
 
           return (
             <div key={match.id} className="card-jogo">
@@ -498,8 +498,8 @@ export default function Dashboard() {
                 {/* Resto do código igual... */}
                 {!isFinished && (
                   <div className="match-info">
-                    {matchDeadlineDate
-                      ? matchDeadlineDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                    {matchDate
+                      ? matchDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
                       : 'Data pendente'}
                   </div>
                 )}

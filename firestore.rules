@@ -28,16 +28,16 @@ service cloud.firestore {
     }
 
     function isBeforeMatchStart(matchId) {
-      let match = get(/databases/$(database)/documents/matches/$(matchId));
+      let matchDoc = get(/databases/$(database)/documents/matches/$(matchId));
       return (
-          'startAt' in match.data
-          && match.data.startAt is timestamp
-          && request.time < match.data.startAt
+          'startAt' in matchDoc.data
+          && matchDoc.data.startAt is timestamp
+          && request.time < matchDoc.data.startAt
         )
         || (
-          !('startAt' in match.data)
-          && match.data.date is string
-          && request.time < timestamp.value(match.data.date + ':00-03:00')
+          !('startAt' in matchDoc.data)
+          && matchDoc.data.date is string
+          && request.time < timestamp.value(matchDoc.data.date + ':00-03:00')
         );
     }
 
