@@ -44,11 +44,16 @@ service cloud.firestore {
     function isBeforeGuessDeadline(data) {
       let league = get(/databases/$(database)/documents/leagues/$(data.leagueId));
       return (
+          'deadlineMode' in league.data
+          &&
           league.data.deadlineMode == 'perMatch'
           && isBeforeMatchStart(data.matchId)
         )
         || (
-          league.data.deadlineMode != 'perMatch'
+          (
+            !('deadlineMode' in league.data)
+            || league.data.deadlineMode != 'perMatch'
+          )
           && isBeforeLeagueDeadline(league)
         );
     }
