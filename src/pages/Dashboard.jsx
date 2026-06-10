@@ -247,9 +247,9 @@ export default function Dashboard() {
 
     } catch (e) {
       console.error(e);
-      // Firestore Security Rules rejeitou — prazo encerrado no servidor
+      // Firestore Security Rules rejeitou. Permission denied pode ser prazo, permissao ou payload invalido.
       if (e?.code === 'permission-denied') {
-        setToast("⛔ Prazo encerrado! Palpite bloqueado pelo servidor.");
+        setToast("⛔ Palpite bloqueado pelo servidor. Verifique prazo e permissões do bolão.");
       } else {
         setToast("Erro ao salvar palpite.");
       }
