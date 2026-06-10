@@ -4,6 +4,16 @@ import { collection, getDocs, doc, setDoc, getDoc, query, where } from 'firebase
 import { db, auth } from '../services/firebaseConfig';
 import { useLeagueGuard } from '../hooks/useLeagueGuard';
 
+const getMatchDate = (match) => {
+  const value = match?.startAt || match?.date;
+  if (!value) return null;
+  if (value?.toDate) return value.toDate();
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) {
+    return new Date(`${value}:00-03:00`);
+  }
+  return new Date(value);
+};
+
 export default function Dashboard() {
   const { leagueId } = useParams();
   useLeagueGuard(leagueId);
@@ -40,7 +50,7 @@ export default function Dashboard() {
       // 3. Carrega Jogos
       const matchesSnap = await getDocs(collection(db, 'matches'));
       const matchList = matchesSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .sort((a,b) => new Date(a.date) - new Date(b.date));
+        .sort((a,b) => getMatchDate(a) - getMatchDate(b));
       setMatches(matchList);
 
       // 4. Configura Grupos (Lógica original)
@@ -121,7 +131,18 @@ export default function Dashboard() {
   };
 
   const deadlineDate = leagueData?.deadline?.toDate() || null;
+  const deadlineMode = leagueData?.deadlineMode || 'global';
+  const usesPerMatchDeadline = deadlineMode === 'perMatch';
   const isDeadlinePassed = deadlineDate ? now >= deadlineDate : false;
+
+  const getMatchDeadlineDate = useCallback((match) => (
+    usesPerMatchDeadline ? getMatchDate(match) : deadlineDate
+  ), [deadlineDate, usesPerMatchDeadline]);
+
+  const isMatchDeadlinePassed = useCallback((match) => {
+    const matchDeadline = getMatchDeadlineDate(match);
+    return matchDeadline ? now >= matchDeadline : false;
+  }, [getMatchDeadlineDate, now]);
 
   const formatDeadline = () => {
     if (!deadlineDate) return '';
@@ -171,7 +192,8 @@ export default function Dashboard() {
 
   // --- LÓGICA INTELIGENTE DE SALVAMENTO ---
   const handleSaveGuess = async (matchId) => {
-    if (isDeadlinePassed) {
+    const match = matches.find(item => item.id === matchId);
+    if (isMatchDeadlinePassed(match)) {
       setToast("Prazo encerrado! Palpite não pode ser salvo.");
       setTimeout(() => setToast(null), 3000);
       return;
@@ -237,7 +259,7 @@ export default function Dashboard() {
   };
 
   const openGuessesModal = async (match) => {
-    if (!isDeadlinePassed) return;
+    if (!isMatchDeadlinePassed(match)) return;
 
     setGuessModal({ isOpen: true, match, loading: leagueGuesses === null });
 
@@ -331,10 +353,10 @@ export default function Dashboard() {
         <button onClick={() => setShowRules(true)} className="btn-secondary" style={{border: 'none', background: 'transparent', fontSize: '1.5rem', padding: '0 10px'}} title="Ver Regras">ℹ️</button>
       </div>
 
-      {deadlineDate && (
+      {(deadlineDate || usesPerMatchDeadline) && (
         <div style={{
           marginBottom: 24,
-          background: isDeadlinePassed 
+          background: !usesPerMatchDeadline && isDeadlinePassed 
             ? 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)' 
             : 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
           borderRadius: 16,
@@ -345,29 +367,39 @@ export default function Dashboard() {
           flexWrap: 'wrap',
           gap: 16,
           boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)',
-          border: `1px solid ${isDeadlinePassed ? '#fca5a5' : '#86efac'}`
+          border: `1px solid ${!usesPerMatchDeadline && isDeadlinePassed ? '#fca5a5' : '#86efac'}`
         }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-              <span style={{ fontSize: '1.2rem', filter: isDeadlinePassed ? 'grayscale(1)' : 'none' }}>{isDeadlinePassed ? '🔒' : '⏳'}</span>
+              <span style={{ fontSize: '1.2rem', filter: !usesPerMatchDeadline && isDeadlinePassed ? 'grayscale(1)' : 'none' }}>
+                {usesPerMatchDeadline ? '⏱️' : (isDeadlinePassed ? '🔒' : '⏳')}
+              </span>
               <h3 style={{ 
                 margin: 0, 
-                color: isDeadlinePassed ? '#991b1b' : '#166534', 
+                color: !usesPerMatchDeadline && isDeadlinePassed ? '#991b1b' : '#166534', 
                 fontSize: '1rem',
                 fontWeight: 800,
                 textTransform: 'uppercase',
                 letterSpacing: 0.5
               }}>
-                {isDeadlinePassed ? 'Prazo Encerrado' : 'Tempo Restante'}
+                {usesPerMatchDeadline ? 'Prazo por Partida' : (isDeadlinePassed ? 'Prazo Encerrado' : 'Tempo Restante')}
               </h3>
             </div>
-            <p style={{ margin: 0, fontSize: '0.9rem', color: isDeadlinePassed ? '#7f1d1d' : '#15803d', fontWeight: 500 }}>
-              Fechamento: {formatDeadline()}
+            <p style={{ margin: 0, fontSize: '0.9rem', color: !usesPerMatchDeadline && isDeadlinePassed ? '#7f1d1d' : '#15803d', fontWeight: 500 }}>
+              {usesPerMatchDeadline
+                ? 'Cada palpite fecha no horário de início do jogo.'
+                : `Fechamento: ${formatDeadline()}`}
             </p>
           </div>
           
           <div style={{ display: 'flex', justifyContent: 'flex-end', flex: '1 1 auto' }}>
-            {!isDeadlinePassed ? (
+            {usesPerMatchDeadline ? (
+              <div style={{ background: 'white', padding: '10px 16px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(22, 101, 52, 0.1)', border: '1px solid rgba(22, 101, 52, 0.2)' }}>
+                <span style={{ fontWeight: 800, color: '#166534', textTransform: 'uppercase', fontSize: '0.9rem', letterSpacing: '1px' }}>
+                  Fechamento individual
+                </span>
+              </div>
+            ) : !isDeadlinePassed ? (
                formatCountdown()
             ) : (
               <div style={{ background: 'white', padding: '10px 16px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(185, 28, 28, 0.1)', border: '1px solid rgba(185, 28, 28, 0.2)' }}>
@@ -404,8 +436,10 @@ export default function Dashboard() {
           const hasChanges = pendingGuesses[match.id] !== undefined;
           const isSaving = loadingIds.includes(match.id);
           const isFinished = match.status === 'finished';
-          const isLocked = isFinished || isDeadlinePassed;
+          const matchDeadlinePassed = isMatchDeadlinePassed(match);
+          const isLocked = isFinished || matchDeadlinePassed;
           const status = isFinished ? getGuessStatus(match, saved) : null;
+          const matchDeadlineDate = getMatchDeadlineDate(match);
 
           return (
             <div key={match.id} className="card-jogo">
@@ -415,8 +449,8 @@ export default function Dashboard() {
                     type="button"
                     className="icon-btn"
                     onClick={() => openGuessesModal(match)}
-                    disabled={!isDeadlinePassed}
-                    title={isDeadlinePassed ? 'Ver palpites do bolão' : 'Disponível após o fechamento dos palpites'}
+                    disabled={!matchDeadlinePassed}
+                    title={matchDeadlinePassed ? 'Ver palpites do bolão' : 'Disponível após o fechamento dos palpites'}
                   >
                     👥
                   </button>
@@ -462,7 +496,13 @@ export default function Dashboard() {
                 </div>
                 
                 {/* Resto do código igual... */}
-                {!isFinished && <div className="match-info">{new Date(match.date).toLocaleDateString('pt-BR')}</div>}
+                {!isFinished && (
+                  <div className="match-info">
+                    {matchDeadlineDate
+                      ? matchDeadlineDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                      : 'Data pendente'}
+                  </div>
+                )}
 
                 {!isLocked && hasChanges && (
                   <button onClick={() => handleSaveGuess(match.id)} className="btn-save-guess" disabled={isSaving}>

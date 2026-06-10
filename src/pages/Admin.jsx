@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { db } from '../services/firebaseConfig';
-import { collection, addDoc, getDocs, getDoc, doc, setDoc, updateDoc, query, where, writeBatch, increment } from 'firebase/firestore';
+import { collection, addDoc, getDocs, getDoc, doc, setDoc, updateDoc, query, where, writeBatch, increment, Timestamp } from 'firebase/firestore';
 import { useAdmin } from '../hooks/useAdmin';
 
 export default function Admin() {
@@ -23,6 +23,8 @@ export default function Admin() {
   const [modalConfig, setModalConfig] = useState({ 
     isOpen: false, title: '', message: '', action: null, isDestructive: false 
   });
+
+  const getBrasiliaDate = (dateValue) => new Date(`${dateValue}:00-03:00`);
 
   const showToast = (message) => {
     setToast(message);
@@ -90,10 +92,16 @@ export default function Admin() {
   const handleCreateMatch = async (e) => {
     e.preventDefault();
     if (!selectedGroupForMatch) { showToast("Selecione um grupo primeiro."); return; }
+    if (!matchForm.homeTeamId || !matchForm.awayTeamId || !matchForm.date) {
+      showToast("Preencha os times e a data do jogo.");
+      return;
+    }
 
     try {
+      const startAt = getBrasiliaDate(matchForm.date);
       await addDoc(collection(db, 'matches'), { 
         ...matchForm, 
+        startAt: Timestamp.fromDate(startAt),
         group: selectedGroupForMatch,
         status: 'scheduled', 
         homeScore: null, 
@@ -449,20 +457,20 @@ export default function Admin() {
               <div style={{display: 'flex', gap: '1rem'}}>
                 <div style={{flex: 1}}>
                     <label className="form-label">Time da Casa</label>
-                    <select className="form-input" value={matchForm.homeTeamId} disabled={!selectedGroupForMatch} onChange={e => setMatchForm({...matchForm, homeTeamId: e.target.value})}>
+                    <select className="form-input" value={matchForm.homeTeamId} disabled={!selectedGroupForMatch} onChange={e => setMatchForm({...matchForm, homeTeamId: e.target.value})} required>
                     <option value="">Selecione...</option>
                     {availableTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                 </div>
                 <div style={{flex: 1}}>
                     <label className="form-label">Time Visitante</label>
-                    <select className="form-input" value={matchForm.awayTeamId} disabled={!selectedGroupForMatch} onChange={e => setMatchForm({...matchForm, awayTeamId: e.target.value})}>
+                    <select className="form-input" value={matchForm.awayTeamId} disabled={!selectedGroupForMatch} onChange={e => setMatchForm({...matchForm, awayTeamId: e.target.value})} required>
                     <option value="">Selecione...</option>
                     {availableTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                 </div>
               </div>
-              <div><label className="form-label">Data e Hora</label><input type="datetime-local" className="form-input" value={matchForm.date} onChange={e => setMatchForm({...matchForm, date: e.target.value})} /></div>
+              <div><label className="form-label">Data e Hora</label><input type="datetime-local" className="form-input" value={matchForm.date} onChange={e => setMatchForm({...matchForm, date: e.target.value})} required /></div>
               <button className="login-btn" disabled={!selectedGroupForMatch}>Agendar Jogo</button>
             </form>
           </div>

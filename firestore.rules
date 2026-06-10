@@ -21,11 +21,36 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/leagues/$(leagueId)/members/$(request.auth.uid)).data.status == 'active';
     }
 
-    function isBeforeDeadline(leagueId) {
-      let league = get(/databases/$(database)/documents/leagues/$(leagueId));
+    function isBeforeLeagueDeadline(league) {
       return !('deadline' in league.data)
         || league.data.deadline == null
         || request.time < league.data.deadline;
+    }
+
+    function isBeforeMatchStart(matchId) {
+      let match = get(/databases/$(database)/documents/matches/$(matchId));
+      return (
+          'startAt' in match.data
+          && match.data.startAt is timestamp
+          && request.time < match.data.startAt
+        )
+        || (
+          !('startAt' in match.data)
+          && match.data.date is string
+          && request.time < timestamp.value(match.data.date + ':00-03:00')
+        );
+    }
+
+    function isBeforeGuessDeadline(data) {
+      let league = get(/databases/$(database)/documents/leagues/$(data.leagueId));
+      return league.data.deadlineMode == 'perMatch'
+        ? isBeforeMatchStart(data.matchId)
+        : isBeforeLeagueDeadline(league);
+    }
+
+    function isBeforeDeadline(leagueId) {
+      let league = get(/databases/$(database)/documents/leagues/$(leagueId));
+      return isBeforeLeagueDeadline(league);
     }
 
     function isValidScore(value) {
@@ -91,7 +116,7 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && isValidGuessData(request.resource.data)
         && isActiveMember(request.resource.data.leagueId)
-        && isBeforeDeadline(request.resource.data.leagueId);
+        && isBeforeGuessDeadline(request.resource.data);
 
       allow update: if isAdmin()
         || (
@@ -104,7 +129,7 @@ service cloud.firestore {
           && isValidScore(request.resource.data.homeGuess)
           && isValidScore(request.resource.data.awayGuess)
           && isActiveMember(resource.data.leagueId)
-          && isBeforeDeadline(resource.data.leagueId)
+          && isBeforeGuessDeadline(resource.data)
         );
 
       allow delete: if isAdmin();

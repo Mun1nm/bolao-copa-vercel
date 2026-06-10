@@ -18,6 +18,7 @@ export default function LeagueManager() {
   const [loading, setLoading] = useState(true);
 
   const [editingDeadline, setEditingDeadline] = useState(false);
+  const [newDeadlineMode, setNewDeadlineMode] = useState('global');
   const [newDeadline, setNewDeadline] = useState('');
   const [savingDeadline, setSavingDeadline] = useState(false);
 
@@ -107,18 +108,24 @@ export default function LeagueManager() {
     return local.toISOString().slice(0, 16);
   };
 
+  const getDeadlineMode = (leagueData) => leagueData?.deadlineMode || 'global';
+
   const handleSaveDeadline = async () => {
-    if (!newDeadline) return;
+    if (newDeadlineMode === 'global' && !newDeadline) return;
     setSavingDeadline(true);
     try {
-      const deadlineDate = new Date(newDeadline + ':00-03:00');
-      const ts = Timestamp.fromDate(deadlineDate);
-      await updateDoc(doc(db, 'leagues', leagueId), { deadline: ts });
-      setLeague(prev => ({ ...prev, deadline: ts }));
+      const payload = { deadlineMode: newDeadlineMode };
+      if (newDeadlineMode === 'global') {
+        const deadlineDate = new Date(newDeadline + ':00-03:00');
+        payload.deadline = Timestamp.fromDate(deadlineDate);
+      }
+
+      await updateDoc(doc(db, 'leagues', leagueId), payload);
+      setLeague(prev => ({ ...prev, ...payload }));
       setEditingDeadline(false);
     } catch (e) {
       console.error(e);
-      alert('Erro ao salvar prazo.');
+      alert('Erro ao salvar configuração de prazo.');
     } finally {
       setSavingDeadline(false);
     }
@@ -225,14 +232,25 @@ export default function LeagueManager() {
           {!editingDeadline ? (
             <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10}}>
               <div>
-                {league?.deadline
-                  ? <span style={{color: '#15803d', fontWeight: 600}}>{formatDeadline(league.deadline)}</span>
-                  : <span style={{color: '#666'}}>Nenhum prazo definido</span>
-                }
-                <p style={{fontSize: '0.85rem', color: '#666', margin: '4px 0 0 0'}}>Horário de Brasília (UTC-3)</p>
+                {getDeadlineMode(league) === 'perMatch' ? (
+                  <span style={{color: '#15803d', fontWeight: 600}}>Por partida</span>
+                ) : (
+                  league?.deadline
+                    ? <span style={{color: '#15803d', fontWeight: 600}}>{formatDeadline(league.deadline)}</span>
+                    : <span style={{color: '#666'}}>Nenhum prazo definido</span>
+                )}
+                <p style={{fontSize: '0.85rem', color: '#666', margin: '4px 0 0 0'}}>
+                  {getDeadlineMode(league) === 'perMatch'
+                    ? 'Cada jogo fecha no horário de início.'
+                    : 'Horário de Brasília (UTC-3)'}
+                </p>
               </div>
               <button
-                onClick={() => { setNewDeadline(toInputValue(league?.deadline)); setEditingDeadline(true); }}
+                onClick={() => {
+                  setNewDeadlineMode(getDeadlineMode(league));
+                  setNewDeadline(toInputValue(league?.deadline));
+                  setEditingDeadline(true);
+                }}
                 className="btn-sm"
                 style={{background: '#3b82f6', color: 'white'}}
               >
@@ -241,14 +259,46 @@ export default function LeagueManager() {
             </div>
           ) : (
             <div>
-              <input
-                type="datetime-local"
-                className="form-input"
-                value={newDeadline}
-                onChange={e => setNewDeadline(e.target.value)}
-                style={{marginBottom: 10}}
-              />
-              <small style={{display: 'block', color: '#666', marginBottom: 10}}>Horário de Brasília (UTC-3)</small>
+              <div style={{display: 'grid', gap: 8, marginBottom: 12}}>
+                <label className="choice-row">
+                  <input
+                    type="radio"
+                    name="managerDeadlineMode"
+                    value="global"
+                    checked={newDeadlineMode === 'global'}
+                    onChange={() => setNewDeadlineMode('global')}
+                  />
+                  <span>
+                    <strong>Prazo único</strong>
+                    <small>Todos os palpites fecham no mesmo horário.</small>
+                  </span>
+                </label>
+                <label className="choice-row">
+                  <input
+                    type="radio"
+                    name="managerDeadlineMode"
+                    value="perMatch"
+                    checked={newDeadlineMode === 'perMatch'}
+                    onChange={() => setNewDeadlineMode('perMatch')}
+                  />
+                  <span>
+                    <strong>Por partida</strong>
+                    <small>Cada jogo fecha no horário de início dele.</small>
+                  </span>
+                </label>
+              </div>
+              {newDeadlineMode === 'global' && (
+                <>
+                  <input
+                    type="datetime-local"
+                    className="form-input"
+                    value={newDeadline}
+                    onChange={e => setNewDeadline(e.target.value)}
+                    style={{marginBottom: 10}}
+                  />
+                  <small style={{display: 'block', color: '#666', marginBottom: 10}}>Horário de Brasília (UTC-3)</small>
+                </>
+              )}
               <div style={{display: 'flex', gap: 8}}>
                 <button onClick={handleSaveDeadline} disabled={savingDeadline} className="btn-sm" style={{background: '#16a34a', color: 'white'}}>
                   {savingDeadline ? 'Salvando...' : 'Salvar'}
