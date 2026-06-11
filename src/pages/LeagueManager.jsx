@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, collection, getDocs, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs, updateDoc, deleteDoc, Timestamp, query, where } from 'firebase/firestore';
 import { db, auth } from '../services/firebaseConfig';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { useLeagueGuard } from '../hooks/useLeagueGuard';
+import { generateGuessesPdf } from '../utils/pdfGuessesReport';
 
 export default function LeagueManager() {
   const { leagueId } = useParams();
@@ -21,6 +22,7 @@ export default function LeagueManager() {
   const [newDeadlineMode, setNewDeadlineMode] = useState('global');
   const [newDeadline, setNewDeadline] = useState('');
   const [savingDeadline, setSavingDeadline] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   // Estados para UI Customizada
   const [showToast, setShowToast] = useState(false); // "Link Copiado"
@@ -138,6 +140,35 @@ export default function LeagueManager() {
     setTimeout(() => setShowToast(false), 3000);
   };
 
+  const handleGenerateGuessesPdf = async () => {
+    setGeneratingPdf(true);
+    try {
+      const [teamsSnap, matchesSnap, guessesSnap] = await Promise.all([
+        getDocs(collection(db, 'teams')),
+        getDocs(collection(db, 'matches')),
+        getDocs(query(collection(db, 'guesses'), where('leagueId', '==', leagueId)))
+      ]);
+
+      const teams = {};
+      teamsSnap.forEach((teamDoc) => {
+        teams[teamDoc.id] = { id: teamDoc.id, ...teamDoc.data() };
+      });
+
+      await generateGuessesPdf({
+        league,
+        members,
+        teams,
+        matches: matchesSnap.docs.map((matchDoc) => ({ id: matchDoc.id, ...matchDoc.data() })),
+        guesses: guessesSnap.docs.map((guessDoc) => ({ id: guessDoc.id, ...guessDoc.data() }))
+      });
+    } catch (error) {
+      console.error('Erro ao gerar PDF de palpites:', error);
+      alert('Erro ao gerar PDF de palpites. Tente novamente.');
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
   const closeModal = () => setModalConfig({ ...modalConfig, isOpen: false });
 
   if (loading) return <div className="container">Carregando gestão...</div>;
@@ -223,6 +254,29 @@ export default function LeagueManager() {
             <p style={{fontSize: '0.9rem', color: '#666', margin: 0}}>Compartilhe este link para as pessoas entrarem.</p>
           </div>
           <button onClick={copyInviteLink} className="btn-sm" style={{background:'#3b82f6', color:'white'}}>Copiar Link</button>
+        </div>
+      </div>
+
+      <div className="card-jogo" style={{marginBottom: '2rem'}}>
+        <div className="card-content" style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12}}>
+          <div>
+            <h4 style={{marginBottom: 5}}>📄 Relatório de Palpites</h4>
+            <p style={{fontSize: '0.9rem', color: '#666', margin: 0}}>
+              Gere um PDF com todos os palpites dos participantes ativos e a data de emissão.
+            </p>
+          </div>
+          <button
+            onClick={handleGenerateGuessesPdf}
+            disabled={generatingPdf || activeMembers.length === 0}
+            className="btn-sm"
+            style={{
+              background: generatingPdf || activeMembers.length === 0 ? '#9ca3af' : '#0f172a',
+              color: 'white',
+              cursor: generatingPdf || activeMembers.length === 0 ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {generatingPdf ? 'Gerando...' : 'Gerar PDF'}
+          </button>
         </div>
       </div>
 
