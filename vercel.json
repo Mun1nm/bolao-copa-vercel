@@ -1,5 +1,9 @@
 {
   "rewrites": [
+    {
+      "source": "/__/auth/:path*",
+      "destination": "https://bolao-copa-app-4e6ec.firebaseapp.com/__/auth/:path*"
+    },
     { "source": "/(.*)", "destination": "/" }
   ]
 }
